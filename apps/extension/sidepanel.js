@@ -21,6 +21,11 @@ let activeTab = null;
 let selectedScopeSelector = null;
 let selectedScopeLabel = null;
 let picking = false;
+// Set when a message round-trip to the background fails (e.g. the extension was reloaded
+// while this panel/tab was still connected to the old instance). Kept separate from
+// currentState so a single flaky message can't make the panel look like the recording
+// vanished — the data is untouched in the background, only this message failed.
+let connectionError = null;
 
 function aiDropConfig() {
   return { skipNoisyActionsInAiDrop: els.hideNoisy.checked };
@@ -68,7 +73,7 @@ await refresh();
 
 async function refresh() {
   activeTab = await getActiveTab();
-  currentState = await sendMessage({ type: 'domrecorder:get-state' });
+  await applyState(() => sendMessage({ type: 'domrecorder:get-state' }));
   if (currentState?.recording) {
     selectedScopeSelector = currentState.recording.scopeSelector || null;
     selectedScopeLabel = selectedScopeSelector;
@@ -79,27 +84,46 @@ async function refresh() {
 async function startRecording() {
   activeTab = await getActiveTab();
   if (!activeTab?.id) return;
-  currentState = await sendMessage({
-    type: 'domrecorder:start',
-    tabId: activeTab.id,
-    config: { scopeSelector: selectedScopeSelector || null },
-  });
+  await applyState(() =>
+    sendMessage({
+      type: 'domrecorder:start',
+      tabId: activeTab.id,
+      config: { scopeSelector: selectedScopeSelector || null },
+    }),
+  );
   picking = false;
   render();
 }
 
 async function stopRecording() {
-  currentState = await sendMessage({ type: 'domrecorder:stop' });
+  await applyState(() => sendMessage({ type: 'domrecorder:stop' }));
   picking = false;
   render();
 }
 
 async function clearRecording() {
-  currentState = await sendMessage({ type: 'domrecorder:clear' });
-  selectedScopeSelector = null;
-  selectedScopeLabel = null;
+  const ok = await applyState(() => sendMessage({ type: 'domrecorder:clear' }));
+  if (ok) {
+    selectedScopeSelector = null;
+    selectedScopeLabel = null;
+  }
   picking = false;
   render();
+}
+
+// Runs a background message and updates currentState only on success. On failure the
+// previous currentState (and whatever it implies about a live/stopped recording) is left
+// alone — the background's own data is untouched by a failed message, so the panel
+// shouldn't act as if the recording disappeared. Returns whether it succeeded.
+async function applyState(send) {
+  try {
+    currentState = await send();
+    connectionError = null;
+    return true;
+  } catch (error) {
+    connectionError = error instanceof Error ? error.message : String(error);
+    return false;
+  }
 }
 
 async function startPicking() {
@@ -107,12 +131,22 @@ async function startPicking() {
   if (!activeTab?.id) return;
   picking = true;
   render();
-  await sendMessage({ type: 'domrecorder:pick', tabId: activeTab.id });
+  try {
+    await sendMessage({ type: 'domrecorder:pick', tabId: activeTab.id });
+  } catch (error) {
+    connectionError = error instanceof Error ? error.message : String(error);
+    picking = false;
+    render();
+  }
 }
 
 async function cancelPicking() {
   if (!activeTab?.id) return;
-  await sendMessage({ type: 'domrecorder:pick-cancel', tabId: activeTab.id });
+  try {
+    await sendMessage({ type: 'domrecorder:pick-cancel', tabId: activeTab.id });
+  } catch {
+    // Best-effort: if the message fails the picker will already be gone with the old page.
+  }
 }
 
 function render() {
@@ -132,6 +166,11 @@ function render() {
     els.tabInfo.textContent = `Active tab: ${activeTab.title || activeTab.url || 'Unknown'} (${activeTab.url || 'no url'})`;
   } else {
     els.tabInfo.textContent = 'No active tab.';
+  }
+  if (connectionError) {
+    els.tabInfo.textContent =
+      `Warning: lost connection to the extension (${connectionError}). ` +
+      `Your recording is unaffected — reload this page and try again.\n${els.tabInfo.textContent}`;
   }
 
   if (recording) {
@@ -161,7 +200,13 @@ async function getActiveTab() {
 }
 
 function sendMessage(message) {
-  return new Promise((resolve) => {
-    chrome.runtime.sendMessage(message, (response) => resolve(response || null));
+  return new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(message, (response) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve(response || null);
+    });
   });
 }
