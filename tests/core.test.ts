@@ -8,6 +8,7 @@ import {
   describeElement,
   describeMutationRecord,
   generateSelectors,
+  isActionEventType,
   serializeRecording,
 } from '../packages/core/src/index.js';
 import type { Recording } from '../packages/core/src/model.js';
@@ -178,6 +179,53 @@ describe('core recording', () => {
     expect(transactions).toHaveLength(1);
     expect(transactions[0].mutations).toHaveLength(2);
     expect(buildSemanticDiff(transactions[0]).some((change) => change.kind === 'text')).toBe(true);
+  });
+
+  it('treats history.pushState/replaceState as correlation anchors alongside user.* events', () => {
+    expect(isActionEventType('user.click')).toBe(true);
+    expect(isActionEventType('history.pushState')).toBe(true);
+    expect(isActionEventType('history.replaceState')).toBe(true);
+    expect(isActionEventType('dom.text')).toBe(false);
+    expect(isActionEventType('snapshot')).toBe(false);
+    expect(isActionEventType('navigation')).toBe(false);
+
+    const recording: Recording = {
+      id: 'rec',
+      version: '1.0.0',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      endedAt: '2026-01-01T00:00:01.000Z',
+      url: 'https://example.com',
+      title: 'Example',
+      userAgent: 'test',
+      initialSnapshot: captureRecordingSnapshot(new JSDOM('<div></div>').window.document, {}),
+      events: [
+        {
+          id: 'a1',
+          timestamp: '2026-01-01T00:00:00.000Z',
+          type: 'history.pushState',
+          target: { selector: 'document', tagName: '#document' },
+          data: { url: 'https://example.com/step-2' },
+        },
+        {
+          id: 'm1',
+          timestamp: '2026-01-01T00:00:00.050Z',
+          type: 'dom.text',
+          target: { selector: '#step', tagName: 'span', path: 'span' },
+          data: { oldText: '1', newText: '2' },
+        },
+        {
+          id: 's1',
+          timestamp: '2026-01-01T00:00:00.060Z',
+          type: 'snapshot',
+          data: { snapshot: captureRecordingSnapshot(new JSDOM('<div></div>').window.document, {}), reason: 'idle' },
+        },
+      ],
+    };
+
+    const transactions = correlateRecording(recording, { correlationWindowMs: 500 });
+    expect(transactions).toHaveLength(1);
+    expect(transactions[0].action.type).toBe('history.pushState');
+    expect(transactions[0].mutations).toHaveLength(1);
   });
 
   it('renders an AI-drop clipboard summary, correlating on the fly when needed', () => {

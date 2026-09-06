@@ -25,7 +25,29 @@ const state = {
 const recordingOptions = {
   redactInputValues: true,
   redactPasswords: true,
+  captureActionSnapshots: true,
+  idleSnapshotDelayMs: 600,
 };
+
+// Delegated from `document` in the capture phase, which reaches non-bubbling types
+// (focus/blur/pointerenter/pointerleave/scroll) too — capturing always traverses the ancestor
+// chain down to the real target regardless of an event's `bubbles` flag.
+const DELEGATED_EVENT_TYPES = [
+  'click', 'dblclick',
+  'pointerdown', 'pointerup', 'pointerover', 'pointerout', 'pointerenter', 'pointerleave',
+  'mousedown', 'mouseup', 'mouseover', 'mouseout', 'contextmenu',
+  'input', 'change', 'select',
+  'keydown', 'keyup', 'keypress',
+  'focus', 'blur',
+  'submit', 'reset',
+  'scroll',
+];
+// These fire with `window` itself as the target, so they need their own listeners.
+const WINDOW_EVENT_TYPES = ['resize', 'popstate', 'hashchange'];
+// scroll/resize can fire many times a second while in progress; only the settled end state is
+// worth an anchor, so these are debounced before emitting.
+const DEBOUNCED_EVENT_TYPES = new Set(['scroll', 'resize']);
+const DEBOUNCE_DELAY_MS = 200;
 
 let lastValues = new WeakMap();
 
@@ -163,6 +185,7 @@ function startRecording() {
     finalSnapshot: null,
     observers: [],
     listeners: [],
+    timers: new Map(),
     window: win,
     document: doc,
   };
@@ -188,24 +211,111 @@ function stopRecording(fromNavigation) {
 
 function attachRecordingSession(session) {
   const { document: doc, window: win } = session;
-  const userEventTypes = ['click', 'dblclick', 'input', 'change', 'keydown', 'keyup', 'focus', 'blur'];
-  const handleUserEvent = (type) => (event) => {
-    const target = event.target instanceof win.Element ? event.target : null;
-    if (!target) return;
-    session.events.push(buildUserEvent(type, event, target, win));
+
+  const debounce = (key, delayMs, fn) => {
+    const existing = session.timers.get(key);
+    if (existing) clearTimeout(existing);
+    session.timers.set(
+      key,
+      setTimeout(() => {
+        session.timers.delete(key);
+        fn();
+      }, delayMs),
+    );
+  };
+
+  const emitSnapshot = (reason) => {
+    session.events.push({
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      type: 'snapshot',
+      data: { snapshot: captureRecordingSnapshot(doc, recordingOptions), reason },
+    });
+  };
+
+  // Fires once DOM mutation activity has been quiet for idleSnapshotDelayMs, capturing the
+  // "response settled" state after a burst of dom.* events (e.g. an SPA re-render).
+  const scheduleIdleSnapshot = () => {
+    if (recordingOptions.captureActionSnapshots === false) return;
+    debounce('__idle_snapshot__', recordingOptions.idleSnapshotDelayMs ?? 600, () => {
+      emitSnapshot('idle');
+      renderEvents(currentEvents());
+    });
+  };
+
+  const emitAction = (type, target, data) => {
+    session.events.push({
+      id: crypto.randomUUID(),
+      timestamp: new Date().toISOString(),
+      type,
+      target,
+      data,
+    });
+    if (recordingOptions.captureActionSnapshots !== false) emitSnapshot('action');
     renderEvents(currentEvents());
   };
 
-  for (const type of userEventTypes) {
-    const handler = handleUserEvent(`user.${type}`);
+  for (const type of DELEGATED_EVENT_TYPES) {
+    const handler = (event) => {
+      const target = event.target instanceof win.Element ? event.target : null;
+      if (!target) return;
+      const emitType = `user.${type}`;
+      const data = buildUserEventData(event, target, win);
+      if (DEBOUNCED_EVENT_TYPES.has(type)) {
+        debounce(emitType, DEBOUNCE_DELAY_MS, () => emitAction(emitType, describeElementCore(target, recordingOptions), data));
+        return;
+      }
+      emitAction(emitType, describeElementCore(target, recordingOptions), data);
+    };
     doc.addEventListener(type, handler, true);
     session.listeners.push(() => doc.removeEventListener(type, handler, true));
   }
+
+  for (const type of WINDOW_EVENT_TYPES) {
+    const handler = (event) => {
+      const emitType = `user.${type}`;
+      const data = {};
+      if (type === 'resize') {
+        data.width = win.innerWidth;
+        data.height = win.innerHeight;
+        debounce(emitType, DEBOUNCE_DELAY_MS, () => emitAction(emitType, { selector: 'window', tagName: '#window' }, data));
+        return;
+      }
+      if (type === 'popstate') {
+        data.url = doc.URL;
+        data.state = event.state ?? null;
+      } else if (type === 'hashchange') {
+        data.oldURL = event.oldURL;
+        data.newURL = event.newURL;
+      }
+      emitAction(emitType, { selector: 'window', tagName: '#window' }, data);
+    };
+    win.addEventListener(type, handler);
+    session.listeners.push(() => win.removeEventListener(type, handler));
+  }
+
+  // history.pushState/replaceState don't dispatch any native event, so SPA route/state
+  // transitions that don't happen to touch the DOM would otherwise be invisible.
+  const originalPushState = win.history.pushState.bind(win.history);
+  const originalReplaceState = win.history.replaceState.bind(win.history);
+  win.history.pushState = (historyState, unused, url) => {
+    originalPushState(historyState, unused, url);
+    emitAction('history.pushState', { selector: 'document', tagName: '#document' }, { url: doc.URL, state: historyState });
+  };
+  win.history.replaceState = (historyState, unused, url) => {
+    originalReplaceState(historyState, unused, url);
+    emitAction('history.replaceState', { selector: 'document', tagName: '#document' }, { url: doc.URL, state: historyState });
+  };
+  session.listeners.push(() => {
+    win.history.pushState = originalPushState;
+    win.history.replaceState = originalReplaceState;
+  });
 
   const observer = new MutationObserver((records) => {
     for (const record of records) {
       session.events.push(...describeMutationRecord(record, recordingOptions));
     }
+    scheduleIdleSnapshot();
     renderEvents(currentEvents());
   });
   observer.observe(doc, {
@@ -279,6 +389,8 @@ function finalizeSession(session) {
 function cleanupSession(session) {
   for (const disconnect of session.observers) disconnect.disconnect();
   for (const remove of session.listeners) remove();
+  for (const timer of session.timers.values()) clearTimeout(timer);
+  session.timers.clear();
   session.observers = [];
   session.listeners = [];
 }
@@ -289,16 +401,6 @@ function currentRecording() {
 
 function currentEvents() {
   return state.session ? state.session.events : currentRecording()?.events || [];
-}
-
-function buildUserEvent(type, event, target, win) {
-  return {
-    id: crypto.randomUUID(),
-    timestamp: new Date().toISOString(),
-    type,
-    target: describeElementCore(target, recordingOptions),
-    data: buildUserEventData(event, target, win),
-  };
 }
 
 function buildUserEventData(event, target, win) {
@@ -319,8 +421,19 @@ function buildUserEventData(event, target, win) {
     if (event.type === 'input' || event.type === 'change') {
       data.before = before;
       data.after = current;
+    } else if (event.type === 'select') {
+      try {
+        data.selectionStart = target.selectionStart;
+        data.selectionEnd = target.selectionEnd;
+      } catch {
+        // selectionStart/selectionEnd throw for input types that don't support text selection
+      }
     }
     lastValues.set(target, current);
+  }
+  if (event.type === 'scroll' && win && target instanceof win.Element) {
+    data.scrollTop = target.scrollTop;
+    data.scrollLeft = target.scrollLeft;
   }
   return data;
 }

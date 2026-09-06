@@ -1,4 +1,5 @@
 import type { ActionTransaction, RecordingEvent, SemanticChange } from './model.js';
+import { isActionEventType } from './model.js';
 import { findActionIndex } from './correlation-helpers.js';
 
 export function buildSemanticDiff(transaction: ActionTransaction): SemanticChange[] {
@@ -51,7 +52,7 @@ export function buildRecordingTransactions(recording: {
   transactions?: ActionTransaction[];
 }): ActionTransaction[] {
   if (recording.transactions?.length) return recording.transactions;
-  const userEvents = recording.events.filter((event) => event.type.startsWith('user.'));
+  const userEvents = recording.events.filter((event) => isActionEventType(event.type));
   const mutations = recording.events.filter((event) => event.type.startsWith('dom.'));
   const transactions: ActionTransaction[] = userEvents.map((action) => ({
     id: action.id,
