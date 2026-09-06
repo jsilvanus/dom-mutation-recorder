@@ -61,20 +61,33 @@ export class DomRecorder {
   }
 
   async stop(): Promise<Recording> {
-    await hydrateSnapshot(this.page, this.state, this.config, false);
+    const recording = await this.snapshot();
     await this.page.evaluate(() => {
       const api = window as unknown as SnapshotApi;
       api.__domRecorderStop?.();
       return null;
     }).catch(() => null);
+    return { ...recording, endedAt: isoNow() };
+  }
 
+  async export(directory: string, mode: 'concise' | 'developer' = 'concise'): Promise<void> {
+    const recording = await this.stop();
+    await exportRecordingArtifacts(recording, directory, { mode });
+  }
+
+  toJSON(): Promise<string> {
+    return this.snapshot().then((recording) => serializeRecording(recording));
+  }
+
+  private async snapshot(): Promise<Recording> {
+    await hydrateSnapshot(this.page, this.state, this.config, false);
     const initialSnapshot = this.state.initialSnapshot ?? (await captureSnapshotFallback(this.page, this.config));
     const finalSnapshot = this.state.finalSnapshot ?? initialSnapshot;
     const recording: Recording = {
       id: this.state.id,
       version: RECORDING_SCHEMA_VERSION,
       startedAt: this.state.startedAt,
-      endedAt: isoNow(),
+      endedAt: null,
       url: finalSnapshot.url,
       title: finalSnapshot.title,
       viewport: this.page.viewportSize() || undefined,
@@ -85,15 +98,6 @@ export class DomRecorder {
     };
     recording.transactions = correlateRecording(recording, this.config);
     return recording;
-  }
-
-  async export(directory: string, mode: 'concise' | 'developer' = 'concise'): Promise<void> {
-    const recording = await this.stop();
-    await exportRecordingArtifacts(recording, directory, { mode });
-  }
-
-  toJSON(): Promise<string> {
-    return this.stop().then((recording) => serializeRecording(recording));
   }
 }
 
@@ -115,7 +119,7 @@ async function hydrateSnapshot(
 async function captureSnapshotFallback(page: Page, config: RecordingConfig): Promise<RecordingSnapshot> {
   return page.evaluate((options) => {
     const redactUrls = options.redactUrls;
-    const url = redactUrls ? new URL(location.href) : new URL(location.href);
+    const url = new URL(location.href);
     if (redactUrls) {
       url.search = '';
       url.hash = '';

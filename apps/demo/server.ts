@@ -1,14 +1,19 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = join(root, 'public');
 
 const server = createServer(async (req, res) => {
-  const pathname = req.url === '/' ? '/index.html' : req.url || '/index.html';
-  const file = join(publicDir, pathname);
+  const pathname = req.url === '/' ? 'index.html' : decodeURIComponent(req.url || '/index.html').replace(/^\/+/, '');
+  const file = resolve(publicDir, pathname);
+  if (!file.startsWith(`${publicDir}${sep}`) && file !== resolve(publicDir)) {
+    res.statusCode = 404;
+    res.end('not found');
+    return;
+  }
   try {
     const content = await readFile(file);
     res.setHeader('content-type', mimeType(file));

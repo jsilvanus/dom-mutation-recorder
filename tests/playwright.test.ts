@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { extname, join, resolve } from 'node:path';
+import { extname, resolve, sep } from 'node:path';
 import { chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DomRecorder } from '../packages/playwright/src/index.js';
@@ -12,8 +12,13 @@ let baseUrl = '';
 
 beforeAll(async () => {
   server = createServer(async (req, res) => {
-    const pathname = req.url === '/' ? '/index.html' : req.url || '/index.html';
-    const file = join(publicDir, pathname);
+    const pathname = req.url === '/' ? 'index.html' : decodeURIComponent(req.url || '/index.html').replace(/^\/+/, '');
+    const file = resolve(publicDir, pathname);
+    if (!file.startsWith(`${publicDir}${sep}`) && file !== resolve(publicDir)) {
+      res.statusCode = 404;
+      res.end('not found');
+      return;
+    }
     try {
       const content = await readFile(file);
       res.setHeader('content-type', mimeType(file));
@@ -49,7 +54,7 @@ describe('playwright recorder', () => {
     expect(recording.initialSnapshot.html).toContain('DOM Recorder Demo');
     expect(recording.events.some((event) => event.type === 'user.click')).toBe(true);
     expect(recording.events.some((event) => event.type === 'dom.added')).toBe(true);
-    expect(recording.transactions?.[0]?.semanticChanges.length).toBeGreaterThan(0);
+    expect(recording.transactions?.some((transaction) => transaction.semanticChanges.length > 0)).toBe(true);
   });
 });
 

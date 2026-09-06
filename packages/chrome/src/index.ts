@@ -1,5 +1,5 @@
 import type { RecordingConfig } from '../../core/src/model.js';
-import { browserRecorderBootstrap } from '../../playwright/src/browser-init.js';
+import { browserRecorderBootstrap } from '../../core/src/browser-bootstrap.js';
 
 export type ChromeRecorderOptions = {
   channel: string;

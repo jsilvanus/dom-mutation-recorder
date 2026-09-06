@@ -1,7 +1,13 @@
 import type { DomNodeSnapshot, RecordingTarget, SelectorCandidate } from './model.js';
 
 export function cssEscape(value: string): string {
-  return value.replace(/[^a-zA-Z0-9_-]/g, (char) => `\\${char}`);
+  const css = (globalThis as { CSS?: { escape?: (input: string) => string } }).CSS?.escape;
+  if (css) return css(value);
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/'/g, "\\'");
+}
+
+function escapeAttributeValue(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
 export function getRole(element: Element): string | null {
@@ -80,7 +86,7 @@ export function generateSelectors(element: Element): SelectorCandidate[] {
     candidates.push({ type: 'stable-id', selector: `#${cssEscape(id)}`, confidence: 1 });
   }
   if (stableId) {
-    candidates.push({ type: 'data-testid', selector: `[data-testid="${stableId}"]`, confidence: 0.98 });
+    candidates.push({ type: 'data-testid', selector: `[data-testid="${escapeAttributeValue(stableId)}"]`, confidence: 0.98 });
   }
   const role = getRole(element);
   const name = getAccessibleName(element);
@@ -94,7 +100,7 @@ export function generateSelectors(element: Element): SelectorCandidate[] {
   for (const attr of attrs.slice(0, 3)) {
     candidates.push({
       type: 'data-attribute',
-      selector: `${tag}[${attr.name}="${attr.value.replace(/"/g, '\\"')}"]`,
+      selector: `${tag}[${attr.name}="${escapeAttributeValue(attr.value)}"]`,
       confidence: 0.8,
     });
   }
@@ -109,7 +115,7 @@ export function generateSelectors(element: Element): SelectorCandidate[] {
   if (!id && classNames.length) {
     candidates.push({
       type: 'attribute',
-      selector: `${tag}[class*="${classNames[0].replace(/"/g, '\\"')}"]`,
+      selector: `${tag}[class*="${escapeAttributeValue(classNames[0])}"]`,
       confidence: 0.45,
     });
   }
