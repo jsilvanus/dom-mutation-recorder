@@ -136,12 +136,6 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
     }
     return `<!doctype html>\n${clone.outerHTML}`;
   };
-  const snapshot = () => ({
-    url: config.redactUrls ? redactUrl(document.URL) : document.URL,
-    title: document.title,
-    html: serializeHtml(document),
-    document: snapshotNode(document) || { kind: 'document', children: [], path: 'html' },
-  });
   const redactUrl = (value: string) => {
     try {
       const parsed = new URL(value);
@@ -152,6 +146,12 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
       return value;
     }
   };
+  const snapshot = () => ({
+    url: config.redactUrls ? redactUrl(document.URL) : document.URL,
+    title: document.title,
+    html: serializeHtml(document),
+    document: snapshotNode(document) || { kind: 'document', children: [], path: 'html' },
+  });
 
   const lastValues = new WeakMap<Element, string>();
   const documentListeners: Array<[string, EventListener]> = [];

@@ -77,9 +77,9 @@ export class DomRecorder {
       this.page.off('framenavigated', this.navigationListener);
     }
     const recording = await this.snapshot();
-    const finalized = { ...recording, endedAt: isoNow() };
-    this.state.finalRecording = finalized;
-    return finalized;
+    recording.endedAt = isoNow();
+    this.state.finalRecording = recording;
+    return recording;
   }
 
   async export(directory: string, mode: 'concise' | 'developer' = 'concise'): Promise<void> {
@@ -87,19 +87,18 @@ export class DomRecorder {
     await exportRecordingArtifacts(recording, directory, { mode, storeOldResults: this.config.storeOldResults });
   }
 
-  toJSON(): Promise<string> {
+  serialize(): Promise<string> {
     return this.stop().then((recording) => serializeRecording(recording));
   }
 
-  private async snapshot(): Promise<Recording> {
+  private async snapshot(): Promise<Omit<Recording, 'endedAt'>> {
     await hydrateSnapshot(this.page, this.state, this.config);
     const initialSnapshot = this.state.initialSnapshot ?? (await captureSnapshotFallback(this.page, this.config));
     const finalSnapshot = this.state.finalSnapshot ?? initialSnapshot;
-    const recording: Recording = {
+    const recording = {
       id: this.state.id,
       version: RECORDING_SCHEMA_VERSION,
       startedAt: this.state.startedAt,
-      endedAt: null,
       url: finalSnapshot.url,
       title: finalSnapshot.title,
       viewport: this.page.viewportSize() || undefined,
@@ -108,8 +107,10 @@ export class DomRecorder {
       finalSnapshot,
       events: [...this.state.events],
     };
-    recording.transactions = correlateRecording(recording, this.config);
-    return recording;
+    return {
+      ...recording,
+      transactions: correlateRecording({ ...recording, endedAt: null }, this.config),
+    };
   }
 }
 

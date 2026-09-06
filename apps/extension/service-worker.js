@@ -23,12 +23,19 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  void handleMessage(message, sender).then(sendResponse);
+  void handleMessage(message, sender)
+    .then(sendResponse)
+    .catch((error) => {
+      console.error(error);
+      sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+    });
   return true;
 });
 
 async function handleMessage(message, sender) {
-  await syncState();
+  if (message?.type !== 'domrecorder:event') {
+    await syncState();
+  }
   if (message?.type === 'domrecorder:get-state') {
     return buildSnapshotState();
   }
@@ -85,7 +92,6 @@ async function stopRecording() {
   state.recording.endedAt = new Date().toISOString();
   state.recording.transactions = correlateRecording(state.recording, DEFAULT_RECORDING_CONFIG.correlationWindowMs);
   await stopRecorderInTab(tabId);
-  await persist();
   state.activeTabId = null;
   await persist();
 }

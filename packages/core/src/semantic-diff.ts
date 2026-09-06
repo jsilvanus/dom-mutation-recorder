@@ -1,4 +1,5 @@
 import type { ActionTransaction, RecordingEvent, SemanticChange } from './model.js';
+import { findActionIndex } from './correlation-helpers.js';
 
 export function buildSemanticDiff(transaction: ActionTransaction): SemanticChange[] {
   const changes: SemanticChange[] = [];
@@ -50,7 +51,24 @@ export function buildRecordingTransactions(recording: {
   transactions?: ActionTransaction[];
 }): ActionTransaction[] {
   if (recording.transactions?.length) return recording.transactions;
-  return [];
+  const userEvents = recording.events.filter((event) => event.type.startsWith('user.'));
+  const mutations = recording.events.filter((event) => event.type.startsWith('dom.'));
+  const transactions: ActionTransaction[] = userEvents.map((action) => ({
+    id: action.id,
+    action,
+    mutations: [],
+    semanticChanges: [],
+  }));
+  for (const mutation of mutations) {
+    const actionIndex = findActionIndex(userEvents, mutation.timestamp, 750);
+    if (actionIndex >= 0) {
+      transactions[actionIndex].mutations.push(mutation);
+    }
+  }
+  for (const transaction of transactions) {
+    transaction.semanticChanges = buildSemanticDiff(transaction);
+  }
+  return transactions;
 }
 
 function describeTarget(event: RecordingEvent): string {
@@ -72,6 +90,7 @@ function isNoiseAttribute(attribute: string): boolean {
     attribute.startsWith('data-emotion')
   );
 }
+
 
 function dedupe(changes: SemanticChange[]): SemanticChange[] {
   const seen = new Set<string>();

@@ -57,7 +57,7 @@ function render() {
   const recording = currentState?.recording;
   const live = Boolean(currentState?.live);
   els.status.textContent = live ? 'Recording' : recording ? 'Stopped' : 'Idle';
-  els.status.className = `status ${live ? 'live' : recording ? 'idle' : 'idle'}`;
+  els.status.className = `status ${live ? 'live' : recording ? 'stopped' : 'idle'}`;
   els.start.disabled = live || !activeTab?.id;
   els.stop.disabled = !live;
   els.copyAi.disabled = !recording;
