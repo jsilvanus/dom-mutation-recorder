@@ -5,16 +5,16 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = join(root, 'public');
-const allowedFiles = new Set(['index.html', 'app.js', 'style.css']);
+const devtoolsDir = join(root, '../devtools');
 
 const server = createServer(async (req, res) => {
-  const pathname = req.url === '/' ? 'index.html' : decodeURIComponent(req.url || '/index.html').replace(/^\/+/, '');
-  if (!allowedFiles.has(pathname)) {
+  const pathname = decodeURIComponent(req.url || '/').replace(/^\/+/, '');
+  const file = resolveRoute(pathname);
+  if (!file) {
     res.statusCode = 404;
     res.end('not found');
     return;
   }
-  const file = join(publicDir, pathname);
   try {
     const content = await readFile(file);
     res.setHeader('content-type', mimeType(file));
@@ -42,4 +42,12 @@ function mimeType(file: string): string {
       '.json': 'application/json; charset=utf-8',
     }[ext] || 'text/plain; charset=utf-8'
   );
+}
+
+function resolveRoute(pathname: string): string | null {
+  if (pathname === '' || pathname === 'index.html') return join(publicDir, 'index.html');
+  if (pathname === 'app.js') return join(publicDir, 'app.js');
+  if (pathname === 'devtools' || pathname === 'devtools/' || pathname === 'devtools/index.html') return join(devtoolsDir, 'index.html');
+  if (pathname === 'devtools/app.js') return join(devtoolsDir, 'app.js');
+  return null;
 }

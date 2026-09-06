@@ -5,65 +5,90 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>DOM Recorder DevTools</title>
     <style>
-      body { font-family: system-ui, sans-serif; margin: 0; display: grid; grid-template-columns: 320px 1fr; min-height: 100vh; }
-      aside, main { padding: 1rem; }
-      pre { white-space: pre-wrap; }
-      button { margin-right: .5rem; }
-      .selected { background: #e6f0ff; }
+      :root { color-scheme: light dark; }
+      body { margin: 0; font-family: system-ui, sans-serif; background: Canvas; color: CanvasText; }
+      .app { display: grid; grid-template-rows: auto auto 1fr; min-height: 100vh; }
+      header, main, footer { padding: 1rem; }
+      header { border-bottom: 1px solid color-mix(in srgb, CanvasText 18%, transparent); display: grid; gap: .75rem; }
+      .toolbar, .actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+      .toolbar input[type="url"], .toolbar input[type="text"] { min-width: 24rem; max-width: 100%; flex: 1; }
+      button, input, select { font: inherit; }
+      .status { font-size: .875rem; padding: .25rem .5rem; border-radius: 999px; background: color-mix(in srgb, CanvasText 10%, transparent); }
+      .status.recording { background: #0f766e; color: white; }
+      .status.idle { background: #374151; color: white; }
+      .status.error { background: #991b1b; color: white; }
+      main { display: grid; grid-template-columns: 340px 1fr; gap: 1rem; min-height: 0; }
+      aside, section { min-width: 0; }
+      .panel { border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: .75rem; padding: 1rem; background: color-mix(in srgb, Canvas 96%, CanvasText 4%); }
+      .stack { display: grid; gap: .75rem; }
+      .scroll { max-height: 40vh; overflow: auto; }
+      .events { list-style: none; padding: 0; margin: 0; }
+      .events li { padding: .5rem .6rem; border-radius: .5rem; cursor: pointer; border: 1px solid transparent; }
+      .events li:hover { background: color-mix(in srgb, CanvasText 7%, transparent); }
+      .events li.selected { background: #dbeafe; color: #111827; border-color: #60a5fa; }
+      .event-meta { display: grid; gap: .25rem; font-size: .875rem; }
+      pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
+      iframe { width: 100%; min-height: 55vh; border: 1px solid color-mix(in srgb, CanvasText 18%, transparent); border-radius: .75rem; background: white; }
+      .muted { color: color-mix(in srgb, CanvasText 55%, transparent); font-size: .875rem; }
+      .kv { display: grid; grid-template-columns: 140px 1fr; gap: .35rem .75rem; font-size: .875rem; }
+      .kv strong { font-weight: 600; }
+      footer { border-top: 1px solid color-mix(in srgb, CanvasText 18%, transparent); }
     </style>
   </head>
   <body>
-    <aside>
-      <h1>DOM Recorder</h1>
-      <input type="file" id="file" accept="application/json" />
-      <div>
-        <button id="copy-selector">Copy selector</button>
-        <button id="copy-evidence">Copy evidence</button>
-      </div>
-      <ul id="events"></ul>
-    </aside>
-    <main>
-      <section>
-        <h2>Recording</h2>
-        <div id="meta"></div>
-      </section>
-      <section>
-        <h2>Selected event</h2>
-        <pre id="selected"></pre>
-      </section>
-    </main>
-    <script type="module">
-      const state = { recording: null, selected: null };
-      const file = document.querySelector('#file');
-      const events = document.querySelector('#events');
-      const meta = document.querySelector('#meta');
-      const selected = document.querySelector('#selected');
-      file.addEventListener('change', async () => {
-        const content = await file.files[0].text();
-        state.recording = JSON.parse(content);
-        render();
-      });
-      document.querySelector('#copy-selector').addEventListener('click', async () => {
-        if (state.selected?.target?.selector) await navigator.clipboard.writeText(state.selected.target.selector);
-      });
-      document.querySelector('#copy-evidence').addEventListener('click', async () => {
-        if (state.recording) await navigator.clipboard.writeText(JSON.stringify(state.recording, null, 2));
-      });
-      function render() {
-        meta.textContent = `${state.recording.title} — ${state.recording.url}`;
-        events.innerHTML = '';
-        for (const event of state.recording.events || []) {
-          const item = document.createElement('li');
-          item.textContent = `${event.type} ${event.target?.selector || ''}`;
-          item.addEventListener('click', () => select(event, item));
-          events.append(item);
-        }
-      }
-      function select(event, item) {
-        state.selected = event;
-        [...events.children].forEach((child) => child.classList.toggle('selected', child === item));
-        selected.textContent = JSON.stringify(event, null, 2);
-      }
-    </script>
+    <div class="app">
+      <header>
+        <div class="toolbar">
+          <label>
+            Target URL
+            <input id="target-url" type="url" value="/index.html" />
+          </label>
+          <button id="load-target">Load target</button>
+          <button id="start-recording">Start recording</button>
+          <button id="stop-recording" disabled>Stop recording</button>
+          <button id="export-recording" disabled>Export recording</button>
+          <button id="export-evidence" disabled>Export evidence</button>
+          <span id="status" class="status idle">Idle</span>
+        </div>
+        <div class="actions">
+          <input id="file" type="file" accept="application/json" />
+          <button id="copy-selector" disabled>Copy selector</button>
+          <button id="copy-evidence" disabled>Copy evidence</button>
+          <span class="muted">Start recording a same-origin page in the preview frame.</span>
+        </div>
+      </header>
+
+      <main>
+        <aside class="stack">
+          <section class="panel stack">
+            <h2>Events</h2>
+            <div class="scroll">
+              <ul id="events" class="events"></ul>
+            </div>
+          </section>
+          <section class="panel stack">
+            <h2>Selected event</h2>
+            <div id="selected-meta" class="event-meta"></div>
+            <pre id="selected"></pre>
+          </section>
+        </aside>
+
+        <section class="stack">
+          <section class="panel stack">
+            <h2>Preview</h2>
+            <iframe id="preview" title="Preview target"></iframe>
+          </section>
+          <section class="panel stack">
+            <h2>Recording summary</h2>
+            <div id="meta" class="kv"></div>
+          </section>
+        </section>
+      </main>
+
+      <footer class="muted">
+        DevTools control bar for live recording, inspection, and export.
+      </footer>
+    </div>
+    <script type="module" src="./app.js"></script>
   </body>
 </html>

@@ -81,7 +81,14 @@ The demo includes buttons, forms, async updates, list mutations, a modal, loadin
 
 ## DevTools UI
 
-Open `apps/devtools/index.html` in a browser and load a `recording.json` file to inspect actions and targets.
+Open the DevTools panel at the demo server URL and use the real control bar to:
+
+- load a target page
+- start/stop recording
+- inspect live events
+- export recording/evidence
+
+The same UI still supports loading a `recording.json` file for inspection.
 
 ## AI export
 
