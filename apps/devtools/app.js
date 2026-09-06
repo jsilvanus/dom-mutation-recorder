@@ -5,6 +5,7 @@
 // realm-safe (nodeType checks rather than `instanceof`), which is exactly what's needed here
 // since the iframe's DOM nodes belong to a different realm than this script's own globals.
 import {
+  buildAiDropText,
   captureRecordingSnapshot,
   correlateRecording as correlateRecordingCore,
   describeElement as describeElementCore,
@@ -434,29 +435,6 @@ function updateButtons() {
   els.copySelector.disabled = !state.selected?.target?.selector;
   els.copyAiDrop.disabled = !hasRecording;
   els.copyEvidence.disabled = !hasRecording;
-}
-
-function buildAiDropText(recording) {
-  const lines = [];
-  lines.push('PAGE');
-  lines.push(`URL: ${recording.url}`);
-  lines.push(`Title: ${recording.title}`);
-  lines.push('');
-  lines.push('INITIAL STATE');
-  lines.push(recording.initialSnapshot?.html || '—');
-  lines.push('');
-  lines.push('ACTIONS');
-  for (const [index, transaction] of (recording.transactions || []).entries()) {
-    lines.push(`Action ${index + 1}: ${transaction.action.type}`);
-    lines.push(`Target: ${transaction.action.target?.selector || transaction.action.target?.name || 'unknown'}`);
-    for (const change of transaction.semanticChanges || []) {
-      lines.push(`- ${change.summary}`);
-    }
-    lines.push('');
-  }
-  lines.push('FINAL STATE');
-  lines.push(recording.finalSnapshot?.html || '—');
-  return lines.join('\n');
 }
 
 function escapeHtml(value) {

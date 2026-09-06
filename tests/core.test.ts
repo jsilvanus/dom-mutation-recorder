@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { JSDOM } from 'jsdom';
 import {
+  buildAiDropText,
   buildSemanticDiff,
   captureRecordingSnapshot,
   correlateRecording,
@@ -177,6 +178,49 @@ describe('core recording', () => {
     expect(transactions).toHaveLength(1);
     expect(transactions[0].mutations).toHaveLength(2);
     expect(buildSemanticDiff(transactions[0]).some((change) => change.kind === 'text')).toBe(true);
+  });
+
+  it('renders an AI-drop clipboard summary, correlating on the fly when needed', () => {
+    const recording: Recording = {
+      id: 'rec',
+      version: '1.0.0',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      endedAt: '2026-01-01T00:00:01.000Z',
+      url: 'https://example.com',
+      title: 'Example',
+      scopeSelector: null,
+      userAgent: 'test',
+      initialSnapshot: { url: 'https://example.com', title: 'Example', html: '<html>initial</html>', document: { kind: 'document', children: [] } },
+      finalSnapshot: { url: 'https://example.com', title: 'Example', html: '<html>final</html>', document: { kind: 'document', children: [] } },
+      events: [
+        {
+          id: 'a1',
+          timestamp: '2026-01-01T00:00:00.000Z',
+          type: 'user.click',
+          target: { selector: 'button', name: 'Add' },
+          data: {},
+        },
+        {
+          id: 'm1',
+          timestamp: '2026-01-01T00:00:00.100Z',
+          type: 'dom.text',
+          target: { selector: '#count' },
+          data: { oldText: '2', newText: '3' },
+        },
+      ],
+      // No transactions set — buildAiDropText must correlate on the fly, e.g. for a
+      // recording.json loaded from disk that predates transactions being computed.
+    };
+
+    const text = buildAiDropText(recording);
+    expect(text).toContain('URL: https://example.com');
+    expect(text).toContain('Scope: entire page');
+    expect(text).toContain('INITIAL STATE');
+    expect(text).toContain('<html>initial</html>');
+    expect(text).toContain('Action 1: user.click');
+    expect(text).toContain('#count text changed');
+    expect(text).toContain('FINAL STATE');
+    expect(text).toContain('<html>final</html>');
   });
 
   it('redacts a password value attribute change in mutation events', () => {

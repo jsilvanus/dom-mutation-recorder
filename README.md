@@ -45,8 +45,10 @@ Either way, `npm run build` needs to have been run at least once for `apps/devto
 for the DevTools panel to import, and `scripts/copy-core-for-extension.mjs` (`npm run
 build:extension-core`, part of `npm run build`) copies the same compiled output into
 `apps/extension/core/` so the extension's side panel/service worker (`apps/extension/shared.js`)
-can import `correlateRecording` from it too — an unpacked extension can only load files from
-within its own directory, so it can't fetch `dist/` over HTTP the way DevTools does.
+can import `correlateRecording`/`buildAiDropText` from it too — an unpacked extension can only
+load files from within its own directory, so it can't fetch `dist/` over HTTP the way DevTools
+does. Both UIs' "Copy AI drop" buttons render the same clipboard text format from the same
+`packages/core/src/ai-drop.ts` function.
 
 ## Recording flow
 

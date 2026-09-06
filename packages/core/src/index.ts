@@ -1,3 +1,4 @@
+export * from './ai-drop.js';
 export * from './correlation.js';
 export * from './model.js';
 export * from './mutations.js';

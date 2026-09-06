@@ -41,14 +41,19 @@ side panel), not injected into a page, so it isn't under the self-containment co
 either — but an unpacked Chrome extension can only load files from within its own directory,
 unlike `apps/devtools`, which can `import` from the repo's `dist/` over HTTP. So
 `scripts/copy-core-for-extension.mjs` (`npm run build:extension-core`) copies `packages/core`'s
-compiled output into `apps/extension/core/`, and `shared.js` imports `correlateRecording` from
-`./core/index.js` instead of maintaining its own copy. `shared.js` keeps only
-`buildAiDropText`/`DEFAULT_RECORDING_CONFIG` locally — `buildAiDropText`'s clipboard-text
-format has no equivalent in `packages/core`/`packages/exporter` (which renders Markdown, not
-this format), and it's genuinely specific to this UI. `apps/devtools/app.js`'s equivalent
-clipboard export (`buildAiDropText` there too) is a small, separate, near-identical duplicate
-of this one — not part of the recorder logic the rest of this doc is about, and not yet
-unified.
+compiled output into `apps/extension/core/`, and `shared.js` imports `correlateRecording`/
+`buildAiDropText` from `./core/index.js` instead of maintaining its own copies. `shared.js`
+keeps only `DEFAULT_RECORDING_CONFIG` locally.
+
+`buildAiDropText` (the "PAGE / INITIAL STATE / ACTIONS / FINAL STATE" plain-text clipboard
+format used by both `apps/extension`'s and `apps/devtools`'s "Copy AI drop" buttons) lives in
+`packages/core/src/ai-drop.ts`, not `packages/exporter`: `packages/exporter` imports
+`node:fs/promises` for its file-writing exports, so a browser trying to import anything from
+it would fail outright, even for an unrelated function that doesn't touch the filesystem —
+`packages/core` has no such Node-only dependency and is already the shared browser+Node
+surface both `apps/devtools` and `apps/extension` import from. If you add another
+browser-facing formatter/utility, it belongs in `packages/core` for the same reason unless it
+is genuinely Node-only (like file export).
 
 ## Before pushing
 
