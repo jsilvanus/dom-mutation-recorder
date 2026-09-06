@@ -150,7 +150,13 @@ async function captureSnapshotFallback(page: Page, config: RecordingConfig): Pro
       title: document.title,
       html: `<!doctype html>\n${root.outerHTML}`,
       scopeSelector: scope ? scopeSelector : null,
-      document: { kind: scope ? 'element' : 'document', children: [], path: scope ? 'document' : 'html', tagName: scope ? root.tagName.toLowerCase() : undefined },
+      document: {
+        kind: scope ? 'element' : 'document',
+        children: [],
+        path: scope ? scopeSelector || root.tagName.toLowerCase() : 'html',
+        selector: scope ? scopeSelector || undefined : undefined,
+        tagName: scope ? root.tagName.toLowerCase() : undefined,
+      },
     };
   }, config);
 }

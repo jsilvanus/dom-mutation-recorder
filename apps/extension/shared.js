@@ -66,6 +66,16 @@ export function browserRecorderBootstrap(options) {
   const nameFor = (element) => {
     const ariaLabel = element.getAttribute('aria-label');
     if (ariaLabel) return clean(ariaLabel);
+    const labelledBy = element.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      const name = labelledBy
+        .split(/\s+/)
+        .map((id) => element.ownerDocument.getElementById(id)?.textContent?.trim() || '')
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      if (name) return clean(name);
+    }
     const title = element.getAttribute('title');
     if (title) return clean(title);
     const text = clean(element.textContent || '');
@@ -134,73 +144,6 @@ export function browserRecorderBootstrap(options) {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = truncate(clean(node.textContent || ''));
       return text ? { kind: 'text', text } : null;
-    }
-
-    function truncateText(value, max = 2000) {
-      const normalized = value.replace(/\s+/g, ' ').trim();
-      return normalized.length > max ? `${normalized.slice(0, max)}…` : normalized;
-    }
-
-    function cssEscape(value) {
-      return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/'/g, "\\'");
-    }
-
-    function attrEscape(value) {
-      return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-    }
-
-    function roleFor(element) {
-      const explicit = element.getAttribute('role');
-      if (explicit) return explicit;
-      const tag = element.tagName.toLowerCase();
-      if (tag === 'button') return 'button';
-      if (tag === 'a' && element.hasAttribute('href')) return 'link';
-      if (tag === 'textarea') return 'textbox';
-      if (tag === 'input') {
-        const type = (element.getAttribute('type') || 'text').toLowerCase();
-        if (type === 'checkbox') return 'checkbox';
-        if (type === 'radio') return 'radio';
-        if (type === 'submit' || type === 'button' || type === 'reset') return 'button';
-        return 'textbox';
-      }
-      if (tag === 'select') return 'combobox';
-      return null;
-    }
-
-    function nameFor(element) {
-      const ariaLabel = element.getAttribute('aria-label');
-      if (ariaLabel) return ariaLabel.trim();
-      const title = element.getAttribute('title');
-      if (title) return title.trim();
-      const text = element.textContent?.replace(/\s+/g, ' ').trim();
-      return text || null;
-    }
-
-    function pathFor(element) {
-      const parts = [];
-      let current = element;
-      while (current) {
-        const tag = current.tagName.toLowerCase();
-        const siblings = Array.from(current.parentElement?.children || []).filter((candidate) => candidate.tagName === current?.tagName);
-        const index = siblings.length > 1 ? siblings.indexOf(current) + 1 : 0;
-        parts.unshift(index > 0 ? `${tag}:nth-of-type(${index})` : tag);
-        current = current.parentElement;
-      }
-      return parts.join(' > ');
-    }
-
-    function selectorsFor(element) {
-      const selectors = [];
-      if (element.id) selectors.push(`#${cssEscape(element.id)}`);
-      const testId = element.getAttribute('data-testid') || element.getAttribute('data-test') || element.getAttribute('data-qa');
-      if (testId) selectors.push(`[data-testid="${attrEscape(testId)}"]`);
-      const role = roleFor(element);
-      const name = nameFor(element);
-      if (role && name) selectors.push(`getByRole("${role}", { name: ${JSON.stringify(name)} })`);
-      const className = Array.from(element.classList).filter(Boolean).slice(0, 2).join('.');
-      if (className) selectors.push(`${element.tagName.toLowerCase()}.${className}`);
-      selectors.push(pathFor(element));
-      return selectors;
     }
     if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.DOCUMENT_NODE) return null;
     const element = node.nodeType === Node.ELEMENT_NODE ? node : null;

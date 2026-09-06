@@ -59,6 +59,16 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
   const nameFor = (element: Element): string | null => {
     const ariaLabel = element.getAttribute('aria-label');
     if (ariaLabel) return clean(ariaLabel);
+    const labelledBy = element.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      const name = labelledBy
+        .split(/\s+/)
+        .map((id) => element.ownerDocument.getElementById(id)?.textContent?.trim() || '')
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      if (name) return clean(name);
+    }
     const title = element.getAttribute('title');
     if (title) return clean(title);
     const text = clean(element.textContent || '');

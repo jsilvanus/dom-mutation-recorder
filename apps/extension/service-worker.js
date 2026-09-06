@@ -48,6 +48,18 @@ async function handleMessage(message, sender) {
     await stopRecording();
     return buildSnapshotState();
   }
+  if (message?.type === 'domrecorder:pick') {
+    const tabId = message.tabId ?? (await getActiveTabId());
+    await startPicking(tabId);
+    return { ok: true };
+  }
+  if (message?.type === 'domrecorder:pick-cancel') {
+    await stopPicking(message.tabId ?? sender.tab?.id ?? null);
+    return { ok: true };
+  }
+  if (message?.type === 'domrecorder:pick-result') {
+    return { ok: true };
+  }
   if (message?.type === 'domrecorder:event' && sender.tab?.id === state.activeTabId && state.recording) {
     appendEvent(message.payload);
     await persist();
@@ -119,6 +131,29 @@ async function injectRecorder(tabId, config = {}) {
   });
 }
 
+async function startPicking(tabId) {
+  if (tabId == null) throw new Error('No active tab');
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: installSelectionPicker,
+    args: [tabId],
+  });
+}
+
+async function stopPicking(tabId) {
+  if (tabId == null) return;
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        window.__domRecorderPickerStop?.();
+      },
+    });
+  } catch {
+    // ignored
+  }
+}
+
 async function stopRecorderInTab(tabId) {
   try {
     await chrome.scripting.executeScript({
@@ -181,4 +216,127 @@ function buildSnapshotState() {
     recording: state.recording,
     live: Boolean(state.recording && state.activeTabId != null),
   };
+}
+
+function installSelectionPicker(tabId) {
+  if (window.__domRecorderPickerInstalled) return;
+  window.__domRecorderPickerInstalled = true;
+
+  const cssEscape = (value) => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/'/g, "\\'");
+  const attrEscape = (value) => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  const roleFor = (element) => {
+    const explicit = element.getAttribute('role');
+    if (explicit) return explicit;
+    const tag = element.tagName.toLowerCase();
+    if (tag === 'button') return 'button';
+    if (tag === 'a' && element.hasAttribute('href')) return 'link';
+    if (tag === 'textarea') return 'textbox';
+    if (tag === 'input') {
+      const type = (element.getAttribute('type') || 'text').toLowerCase();
+      if (type === 'checkbox') return 'checkbox';
+      if (type === 'radio') return 'radio';
+      if (type === 'submit' || type === 'button' || type === 'reset') return 'button';
+      return 'textbox';
+    }
+    if (tag === 'select') return 'combobox';
+    return null;
+  };
+  const nameFor = (element) => {
+    const ariaLabel = element.getAttribute('aria-label');
+    if (ariaLabel) return ariaLabel.trim();
+    const labelledBy = element.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      const name = labelledBy
+        .split(/\s+/)
+        .map((id) => element.ownerDocument.getElementById(id)?.textContent?.trim() || '')
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      if (name) return name;
+    }
+    const title = element.getAttribute('title');
+    if (title) return title.trim();
+    const text = element.textContent?.replace(/\s+/g, ' ').trim();
+    return text || null;
+  };
+  const pathFor = (element) => {
+    const parts = [];
+    let current = element;
+    while (current) {
+      const tag = current.tagName.toLowerCase();
+      const siblings = Array.from(current.parentElement?.children || []).filter((candidate) => candidate.tagName === current?.tagName);
+      const index = siblings.length > 1 ? siblings.indexOf(current) + 1 : 0;
+      parts.unshift(index > 0 ? `${tag}:nth-of-type(${index})` : tag);
+      current = current.parentElement;
+    }
+    return parts.join(' > ');
+  };
+  const selectorsFor = (element) => {
+    const selectors = [];
+    if (element.id) selectors.push(`#${cssEscape(element.id)}`);
+    const testId = element.getAttribute('data-testid') || element.getAttribute('data-test') || element.getAttribute('data-qa');
+    if (testId) selectors.push(`[data-testid="${attrEscape(testId)}"]`);
+    const role = roleFor(element);
+    const name = nameFor(element);
+    if (role && name) selectors.push(`getByRole("${role}", { name: ${JSON.stringify(name)} })`);
+    const className = Array.from(element.classList).filter(Boolean).slice(0, 2).join('.');
+    if (className) selectors.push(`${element.tagName.toLowerCase()}.${className}`);
+    selectors.push(pathFor(element));
+    return selectors;
+  };
+  const scopeSelectorFor = (element) => selectorsFor(element).find((candidate) => !candidate.startsWith('getByRole(')) || selectorsFor(element)[0] || null;
+  let hoverCleanup = null;
+
+  const clearHover = () => {
+    if (typeof hoverCleanup === 'function') hoverCleanup();
+    hoverCleanup = null;
+  };
+  const stop = () => {
+    clearHover();
+    document.removeEventListener('mousemove', onMove, true);
+    document.removeEventListener('click', onClick, true);
+    window.__domRecorderPickerInstalled = false;
+    window.__domRecorderPickerStop = undefined;
+  };
+  const onMove = (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    clearHover();
+    target.style.outline = '2px solid #2563eb';
+    target.style.outlineOffset = '2px';
+    hoverCleanup = () => {
+      target.style.outline = '';
+      target.style.outlineOffset = '';
+    };
+  };
+  const onClick = (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const selector = scopeSelectorFor(target);
+    const description = {
+      selector,
+      selectors: selectorsFor(target),
+      role: roleFor(target),
+      name: nameFor(target),
+      tagName: target.tagName.toLowerCase(),
+      id: target.id || null,
+      classes: Array.from(target.classList),
+      path: pathFor(target),
+      text: target.textContent?.replace(/\s+/g, ' ').trim() || null,
+      attributes: Object.fromEntries(Array.from(target.attributes).map((attribute) => [attribute.name, attribute.value])),
+    };
+    chrome.runtime.sendMessage({
+      type: 'domrecorder:pick-result',
+      tabId,
+      selector,
+      target: description,
+    });
+    stop();
+  };
+
+  document.addEventListener('mousemove', onMove, true);
+  document.addEventListener('click', onClick, true);
+  window.__domRecorderPickerStop = stop;
 }

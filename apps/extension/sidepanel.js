@@ -1,4 +1,4 @@
-import { buildAiDropText, pickScopeSelector } from './shared.js';
+import { buildAiDropText } from './shared.js';
 
 const els = {
   status: document.querySelector('#status'),
@@ -17,17 +17,26 @@ const els = {
 let currentState = null;
 let activeTab = null;
 let selectedScopeSelector = null;
+let selectedScopeLabel = null;
 let picking = false;
-let pickerCleanup = null;
-let hoverCleanup = null;
+
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type !== 'domrecorder:pick-result') return;
+  if (message.tabId !== activeTab?.id) return;
+  selectedScopeSelector = message.selector || null;
+  selectedScopeLabel = message.target?.selector || message.target?.name || message.target?.tagName || 'element';
+  picking = false;
+  render();
+});
 
 els.refresh.addEventListener('click', () => void refresh());
 els.start.addEventListener('click', () => void startRecording());
-els.pick.addEventListener('click', () => void beginPicking());
+els.pick.addEventListener('click', () => void startPicking());
 els.page.addEventListener('click', () => {
   selectedScopeSelector = null;
+  selectedScopeLabel = null;
   picking = false;
-  cleanupHover();
+  void cancelPicking();
   render();
 });
 els.stop.addEventListener('click', () => void stopRecording());
@@ -54,6 +63,7 @@ async function refresh() {
   currentState = await sendMessage({ type: 'domrecorder:get-state' });
   if (currentState?.recording) {
     selectedScopeSelector = currentState.recording.scopeSelector || null;
+    selectedScopeLabel = selectedScopeSelector;
   }
   render();
 }
@@ -66,22 +76,36 @@ async function startRecording() {
     tabId: activeTab.id,
     config: { scopeSelector: selectedScopeSelector || null },
   });
+  picking = false;
   render();
 }
 
 async function stopRecording() {
   currentState = await sendMessage({ type: 'domrecorder:stop' });
+  picking = false;
   render();
+}
+
+async function startPicking() {
+  activeTab = await getActiveTab();
+  if (!activeTab?.id) return;
+  picking = true;
+  render();
+  await sendMessage({ type: 'domrecorder:pick', tabId: activeTab.id });
+}
+
+async function cancelPicking() {
+  if (!activeTab?.id) return;
+  await sendMessage({ type: 'domrecorder:pick-cancel', tabId: activeTab.id });
 }
 
 function render() {
   const recording = currentState?.recording;
   const live = Boolean(currentState?.live);
-  const sameOrigin = canAccessPreview();
   els.status.textContent = picking ? 'Picking element' : live ? 'Recording' : recording ? 'Stopped' : 'Idle';
   els.status.className = `status ${picking ? 'picking' : live ? 'live' : recording ? 'stopped' : 'idle'}`;
-  els.start.disabled = live || picking || !activeTab?.id || !sameOrigin;
-  els.pick.disabled = live || picking || !activeTab?.id || !sameOrigin;
+  els.start.disabled = live || picking || !activeTab?.id;
+  els.pick.disabled = live || picking || !activeTab?.id;
   els.page.disabled = live || !activeTab?.id;
   els.stop.disabled = !live;
   els.copyAi.disabled = !recording;
@@ -110,7 +134,8 @@ function render() {
   }
 
   const scope = selectedScopeSelector || recording?.scopeSelector || 'entire page';
-  els.scopeInfo.textContent = `Scope: ${scope}`;
+  const label = selectedScopeLabel && selectedScopeLabel !== scope ? `\nSelected: ${selectedScopeLabel}` : '';
+  els.scopeInfo.textContent = `Scope: ${scope}${label}`;
 }
 
 async function getActiveTab() {
@@ -122,60 +147,4 @@ function sendMessage(message) {
   return new Promise((resolve) => {
     chrome.runtime.sendMessage(message, (response) => resolve(response || null));
   });
-}
-
-async function beginPicking() {
-  if (!canAccessPreview()) return;
-  const win = els.preview.contentWindow;
-  const doc = win?.document;
-  if (!doc) return;
-  cleanupHover();
-  picking = true;
-  render();
-
-  const finish = () => {
-   picking = false;
-   cleanupHover();
-   render();
-  };
-
-  const onMove = (event) => {
-   const target = event.target instanceof win.Element ? event.target : null;
-   if (!target) return;
-   if (typeof hoverCleanup === 'function') hoverCleanup();
-   target.style.outline = '2px solid #2563eb';
-   target.style.outlineOffset = '2px';
-   hoverCleanup = () => {
-     target.style.outline = '';
-     target.style.outlineOffset = '';
-   };
-  };
-
-  const onClick = (event) => {
-   const target = event.target instanceof win.Element ? event.target : null;
-   if (!target) return;
-   event.preventDefault();
-   event.stopPropagation();
-   selectedScopeSelector = pickScopeSelector(target);
-   finish();
-  };
-
-  doc.addEventListener('mousemove', onMove, true);
-  doc.addEventListener('click', onClick, true);
-
-  pickerCleanup = () => {
-   doc.removeEventListener('mousemove', onMove, true);
-   doc.removeEventListener('click', onClick, true);
-  };
-}
-
-function cleanupHover() {
-  if (typeof hoverCleanup === 'function') {
-   hoverCleanup();
-  }
-  hoverCleanup = null;
-  if (typeof pickerCleanup === 'function') {
-   pickerCleanup();
-  }
-  pickerCleanup = null;
 }
