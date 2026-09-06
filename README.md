@@ -11,10 +11,14 @@ Local-first DOM recording toolkit for browser extensions and Playwright/E2E debu
 
 ## Architecture
 
-- `packages/core` — snapshots, selectors, mutation normalization, correlation, semantic diff, JSON serialization
+- `packages/core` — snapshots, selectors, mutation normalization, redaction, correlation,
+  semantic diff, JSON serialization, AI-drop clipboard text
 - `packages/playwright` — Playwright recorder attachment and browser bootstrap
-- `packages/exporter` — Markdown/JSON/HTML evidence export
-- `packages/chrome` — Chrome-side recorder bootstrap adapter
+- `packages/exporter` — Markdown/JSON/HTML evidence export (file-based; Node-only)
+- `packages/chrome` — Chrome-side recorder bootstrap adapter, for consumers who bundle it into
+  their own content script
+- `apps/extension` — the packaged Chrome extension (side panel + service worker); see Chrome
+  extension workflow below
 - `apps/demo` — local demo app for recording
 - `apps/devtools` — live recorder inspection UI, attaches directly to a same-origin preview
   `<iframe>` and imports `packages/core`'s compiled output as plain ES modules
@@ -234,4 +238,5 @@ Recordings may contain page content and should be treated as sensitive artifacts
 
 - accessibility naming is heuristic, not a full accessibility tree
 - navigation correlation is basic and can be extended
-- the Chrome side is currently an adapter package, not a full packaged extension
+- `packages/chrome` is a thin adapter for consumers who bundle it into their own content
+  script — `apps/extension` is the actual packaged extension, and doesn't use it
