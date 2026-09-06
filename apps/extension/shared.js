@@ -5,27 +5,12 @@ export const DEFAULT_RECORDING_CONFIG = {
   scopeSelector: null,
 };
 
-export function describeSelectableElement(element) {
-  const selectors = selectorsFor(element);
-  return {
-    selector: selectors[0] || null,
-    selectors,
-    role: roleFor(element),
-    name: nameFor(element),
-    tagName: element.tagName.toLowerCase(),
-    id: element.id || null,
-    classes: Array.from(element.classList),
-    path: pathFor(element),
-    text: truncateText(element.textContent || ''),
-    attributes: Object.fromEntries(Array.from(element.attributes).map((attribute) => [attribute.name, truncateText(attribute.value)])),
-  };
-}
-
-export function pickScopeSelector(element) {
-  const candidates = selectorsFor(element);
-  return candidates.find((candidate) => !candidate.startsWith('getByRole(')) || candidates[0] || null;
-}
-
+// NOTE: browserRecorderBootstrap is injected via chrome.scripting.executeScript({ func }),
+// which serializes only this function's own source (Function.prototype.toString()) and
+// re-executes it in the target page with no closure over this module's scope. Every helper
+// it needs must therefore be declared *inside* this function, not at module scope — see
+// packages/core/src/browser-bootstrap.ts for the Playwright/canonical equivalent, which has
+// the same constraint for the same reason (page.addInitScript/page.evaluate(fn)).
 export function browserRecorderBootstrap(options) {
   const config = options.config || {};
   const tabId = options.tabId;
@@ -108,6 +93,7 @@ export function browserRecorderBootstrap(options) {
   };
   const describeElement = (element) => {
     const selectors = selectorsFor(element);
+    const redactValue = shouldRedactElementValue(element);
     return {
       selector: selectors[0],
       selectors,
@@ -118,7 +104,12 @@ export function browserRecorderBootstrap(options) {
       classes: Array.from(element.classList),
       path: pathFor(element),
       text: truncate(clean(element.textContent || '')),
-      attributes: Object.fromEntries(Array.from(element.attributes).map((attribute) => [attribute.name, truncate(attribute.value)])),
+      attributes: Object.fromEntries(
+        Array.from(element.attributes).map((attribute) => [
+          attribute.name,
+          attribute.name === 'value' && redactValue ? '[redacted]' : truncate(attribute.value),
+        ]),
+      ),
     };
   };
   function resolveScopeElement(selector) {
@@ -135,9 +126,16 @@ export function browserRecorderBootstrap(options) {
   }
   const scopeElement = resolveScopeElement(scopeSelector);
   const shouldRedactFieldValue = (tag, type) => {
-    if (tag !== 'input' && tag !== 'textarea') return false;
+    if (tag === 'textarea') return config.redactInputValues !== false;
+    if (tag !== 'input') return false;
     if (type === 'password') return config.redactPasswords !== false || config.redactInputValues !== false;
-    return config.redactInputValues !== false && ['text', 'search', 'email', 'url', 'tel', 'number'].includes(type);
+    const nonRedactableInputTypes = ['checkbox', 'radio', 'submit', 'button', 'reset', 'image', 'range', 'color', 'file'];
+    return config.redactInputValues !== false && !nonRedactableInputTypes.includes(type);
+  };
+  const shouldRedactElementValue = (element) => {
+    const tag = element.tagName.toLowerCase();
+    const type = element.getAttribute('type')?.toLowerCase() || 'text';
+    return shouldRedactFieldValue(tag, type);
   };
   const snapshotNode = (node, depth = 0) => {
     if (depth > 20) return null;
@@ -176,15 +174,29 @@ export function browserRecorderBootstrap(options) {
     };
   };
   const serializeHtml = (doc) => {
-    const clone = (scopeElement ?? doc.documentElement).cloneNode(true);
+    const root = scopeElement ?? doc.documentElement;
+    // cloneNode(true) only copies HTML attributes, not the live `.value` IDL property that
+    // typing/scripting updates on inputs and textareas — read the live values from the
+    // originals (in the same traversal order as the clone) before they're discarded.
+    const originalFields = Array.from(root.querySelectorAll('input, textarea'));
+    const clone = root.cloneNode(true);
     for (const script of Array.from(clone.querySelectorAll('script, noscript'))) {
       script.textContent = '[omitted]';
     }
-    for (const field of Array.from(clone.querySelectorAll('input, textarea'))) {
+    const clonedFields = Array.from(clone.querySelectorAll('input, textarea'));
+    clonedFields.forEach((field, index) => {
+      // originalFields[index] is guaranteed to be an <input> or <textarea> by the selector above.
+      const original = originalFields[index];
       const tag = field.tagName.toLowerCase();
       const type = (field.getAttribute('type') || 'text').toLowerCase();
-      if (shouldRedactFieldValue(tag, type)) field.setAttribute('value', '[redacted]');
-    }
+      const liveValue = original?.value ?? '';
+      const value = shouldRedactFieldValue(tag, type) ? '[redacted]' : liveValue;
+      if (tag === 'textarea') {
+        field.textContent = value;
+      } else {
+        field.setAttribute('value', value);
+      }
+    });
     return `<!doctype html>\n${clone.outerHTML}`;
   };
   const snapshot = () => ({
@@ -217,21 +229,21 @@ export function browserRecorderBootstrap(options) {
       data.coordinates = { x: event.clientX, y: event.clientY || 0 };
     }
     if (event instanceof KeyboardEvent) {
-      const tag = target.tagName.toLowerCase();
-      const typeValue = target.getAttribute('type')?.toLowerCase() || 'text';
-      const redacted = shouldRedactFieldValue(tag, typeValue);
+      const redacted = shouldRedactElementValue(target);
       data.key = redacted && event.key.length === 1 ? '[redacted]' : event.key;
       data.code = event.code;
     }
     if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
+      // Update lastValues on every event that touches this field (not just input/change) so
+      // the very first keystroke has a real "before" value captured from an earlier
+      // focus/keydown, instead of falling back to the just-changed current value.
+      const current = shouldRedactElementValue(target) ? '[redacted]' : target.value;
+      const before = lastValues.get(target) ?? current;
       if (type === 'user.input' || type === 'user.change') {
-        const tag = target.tagName.toLowerCase();
-        const typeValue = target.getAttribute('type')?.toLowerCase() || 'text';
-        const redacted = shouldRedactFieldValue(tag, typeValue);
-        data.before = lastValues.get(target) ?? (redacted ? '[redacted]' : target.value);
-        data.after = redacted ? '[redacted]' : target.value;
-        lastValues.set(target, data.after);
+        data.before = before;
+        data.after = current;
       }
+      lastValues.set(target, current);
     }
     send({
       id: crypto.randomUUID(),
@@ -274,15 +286,17 @@ export function browserRecorderBootstrap(options) {
           });
         }
       } else if (record.type === 'attributes' && record.target instanceof Element) {
+        const attribute = record.attributeName || '';
+        const redact = attribute === 'value' && shouldRedactElementValue(record.target);
         send({
           id: crypto.randomUUID(),
           timestamp: new Date().toISOString(),
           type: 'dom.attributes',
           target: describeElement(record.target),
           data: {
-            attribute: record.attributeName || '',
-            oldValue: record.oldValue,
-            newValue: record.target.getAttribute(record.attributeName || '') ?? null,
+            attribute,
+            oldValue: redact ? '[redacted]' : record.oldValue,
+            newValue: redact ? '[redacted]' : record.target.getAttribute(attribute) ?? null,
           },
         });
       } else if (record.type === 'characterData' && record.target instanceof CharacterData) {

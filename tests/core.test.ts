@@ -179,6 +179,63 @@ describe('core recording', () => {
     expect(buildSemanticDiff(transactions[0]).some((change) => change.kind === 'text')).toBe(true);
   });
 
+  it('redacts a password value attribute change in mutation events', () => {
+    const dom = new JSDOM(`<input type="password" id="pw" value="secret">`);
+    const input = dom.window.document.querySelector('#pw')!;
+    const events = describeMutationRecord(
+      {
+        type: 'attributes',
+        target: input,
+        attributeName: 'value',
+        oldValue: 'old-secret',
+      } as unknown as MutationRecord,
+      { redactPasswords: true },
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0].data.oldValue).toBe('[redacted]');
+    expect(events[0].data.newValue).toBe('[redacted]');
+  });
+
+  it('redacts the value attribute in describeElement output for password fields', () => {
+    const dom = new JSDOM(`<input type="password" value="hunter2">`);
+    const input = dom.window.document.querySelector('input')!;
+    const target = describeElement(input, { redactPasswords: true });
+    expect(target.attributes?.value).toBe('[redacted]');
+  });
+
+  it('captures characterData mutations on comment nodes, not just text nodes', () => {
+    const dom = new JSDOM(`<div id="root"><!--placeholder--></div>`);
+    const comment = dom.window.document.querySelector('#root')!.firstChild!;
+    const events = describeMutationRecord(
+      {
+        type: 'characterData',
+        target: comment,
+        oldValue: 'placeholder',
+      } as unknown as MutationRecord,
+      {},
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('dom.text');
+  });
+
+  it('reflects live typed values in the html snapshot and always redacts passwords', () => {
+    const dom = new JSDOM(`
+      <input id="name" type="text" />
+      <input id="pw" type="password" />
+      <textarea id="notes"></textarea>
+    `);
+    const { document } = dom.window;
+    (document.querySelector('#name') as HTMLInputElement).value = 'Jane Doe';
+    (document.querySelector('#pw') as HTMLInputElement).value = 'hunter2';
+    (document.querySelector('#notes') as HTMLTextAreaElement).value = 'secret notes';
+
+    const snapshot = captureRecordingSnapshot(document, { redactInputValues: false });
+    expect(snapshot.html).toContain('Jane Doe');
+    expect(snapshot.html).toContain('secret notes');
+    expect(snapshot.html).not.toContain('hunter2');
+    expect(snapshot.html).toContain('[redacted]');
+  });
+
   it('serializes and deserializes deterministically', () => {
     const recording: Recording = {
       id: 'x',

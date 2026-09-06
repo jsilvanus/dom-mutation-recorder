@@ -26,8 +26,13 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
     if (type === 'password') {
       return config.redactPasswords !== false || config.redactInputValues !== false;
     }
-    const textLikeInputTypes = new Set(['text', 'search', 'email', 'url', 'tel', 'number']);
-    return config.redactInputValues !== false && textLikeInputTypes.has(type);
+    const nonRedactableInputTypes = new Set(['checkbox', 'radio', 'submit', 'button', 'reset', 'image', 'range', 'color', 'file']);
+    return config.redactInputValues !== false && !nonRedactableInputTypes.has(type);
+  };
+  const shouldRedactElementValue = (element: Element): boolean => {
+    const tag = element.tagName.toLowerCase();
+    const type = element.getAttribute('type')?.toLowerCase() || 'text';
+    return shouldRedactFieldValue(tag, type);
   };
   const emit = (payload: unknown) => {
     const fn = (window as unknown as Record<string, (value: unknown) => void>)[options.channel];
@@ -101,6 +106,7 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
   };
   const describeElement = (element: Element) => {
     const selectors = selectorsFor(element);
+    const redactValue = shouldRedactElementValue(element);
     return {
       selector: selectors[0],
       selectors,
@@ -111,13 +117,13 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
       classes: Array.from(element.classList),
       path: pathFor(element),
       text: truncate(clean(element.textContent || '')),
-      attributes: Object.fromEntries(Array.from(element.attributes).map((attribute) => [attribute.name, truncate(attribute.value)])),
+      attributes: Object.fromEntries(
+        Array.from(element.attributes).map((attribute) => [
+          attribute.name,
+          attribute.name === 'value' && redactValue ? '[redacted]' : truncate(attribute.value),
+        ]),
+      ),
     };
-  };
-  const shouldRedactValue = (element: Element) => {
-    const tag = element.tagName.toLowerCase();
-    const type = element.getAttribute('type')?.toLowerCase() || 'text';
-    return shouldRedactFieldValue(tag, type);
   };
   const snapshotNode = (node: Node, depth = 0): unknown => {
     if (depth > 20) return null;
@@ -131,7 +137,7 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
     if (element) {
       for (const attr of Array.from(element.attributes)) {
         if (attr.name === 'style') continue;
-        if (attr.name === 'value' && shouldRedactValue(element)) {
+        if (attr.name === 'value' && shouldRedactElementValue(element)) {
           attrs[attr.name] = '[redacted]';
           continue;
         }
@@ -154,17 +160,29 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
     };
   };
   const serializeHtml = (doc: Document) => {
-    const clone = (scopeElement ?? doc.documentElement).cloneNode(true) as Element;
+    const root = scopeElement ?? doc.documentElement;
+    // cloneNode(true) only copies HTML attributes, not the live `.value` IDL property that
+    // typing/scripting updates on inputs and textareas — read the live values from the
+    // originals (in the same traversal order as the clone) before they're discarded.
+    const originalFields = Array.from(root.querySelectorAll('input, textarea'));
+    const clone = root.cloneNode(true) as Element;
     for (const script of Array.from(clone.querySelectorAll('script, noscript'))) {
       script.textContent = '[omitted]';
     }
-    for (const input of Array.from(clone.querySelectorAll('input, textarea'))) {
-      const type = (input.getAttribute('type') || 'text').toLowerCase();
-      const tag = input.tagName.toLowerCase();
-      if (shouldRedactFieldValue(tag, type)) {
-        input.setAttribute('value', '[redacted]');
+    const clonedFields = Array.from(clone.querySelectorAll('input, textarea'));
+    clonedFields.forEach((field, index) => {
+      // originalFields[index] is guaranteed to be an <input> or <textarea> by the selector above.
+      const original = originalFields[index] as HTMLInputElement | HTMLTextAreaElement | undefined;
+      const tag = field.tagName.toLowerCase();
+      const type = (field.getAttribute('type') || 'text').toLowerCase();
+      const liveValue = original?.value ?? '';
+      const value = shouldRedactFieldValue(tag, type) ? '[redacted]' : liveValue;
+      if (tag === 'textarea') {
+        field.textContent = value;
+      } else {
+        field.setAttribute('value', value);
       }
-    }
+    });
     return `<!doctype html>\n${clone.outerHTML}`;
   };
   const redactUrl = (value: string) => {
@@ -197,11 +215,11 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
       data.coordinates = { x: event.clientX, y: 'clientY' in event ? (event as MouseEvent).clientY : 0 };
     }
     if (event instanceof KeyboardEvent) {
-      data.key = shouldRedactValue(target) && event.key.length === 1 ? '[redacted]' : event.key;
+      data.key = shouldRedactElementValue(target) && event.key.length === 1 ? '[redacted]' : event.key;
       data.code = event.code;
     }
     if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-      const current = shouldRedactValue(target) ? '[redacted]' : target.value;
+      const current = shouldRedactElementValue(target) ? '[redacted]' : target.value;
       const before = lastValues.get(target) ?? current;
       if (type === 'user.input' || type === 'user.change') {
         data.before = before;
@@ -252,15 +270,17 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
           });
         }
       } else if (record.type === 'attributes' && record.target instanceof Element) {
+        const attribute = record.attributeName || '';
+        const redact = attribute === 'value' && shouldRedactElementValue(record.target);
         emit({
           id: crypto.randomUUID(),
           timestamp: new Date().toISOString(),
           type: 'dom.attributes',
           target: describeElement(record.target),
           data: {
-            attribute: record.attributeName || '',
-            oldValue: record.oldValue,
-            newValue: record.target.getAttribute(record.attributeName || '') ?? null,
+            attribute,
+            oldValue: redact ? '[redacted]' : record.oldValue,
+            newValue: redact ? '[redacted]' : record.target.getAttribute(attribute) ?? null,
           },
         });
       } else if (record.type === 'characterData' && record.target instanceof CharacterData) {
