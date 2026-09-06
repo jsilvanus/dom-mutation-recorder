@@ -163,7 +163,10 @@ export function isNoisyActionEventType(type: string): boolean {
 // pointerover/mouseover (which fire continuously just from moving the mouse) previously froze
 // the page solid and blew past storage quotas. Only genuinely discrete, low-frequency actions
 // get bracketed; everything else still appears in the raw event stream, just without its own
-// snapshot.
+// snapshot. Each bracketing snapshot also omits the unbounded `html` field (see
+// captureRecordingSnapshot's includeHtml option) — narrowing *which* events get one wasn't
+// enough on its own to stay under a consumer's storage quota when each one still cloned and
+// serialized the whole page.
 const SNAPSHOT_WORTHY_ACTION_TYPES = new Set<UserEventType | HistoryEventType>([
   'user.click',
   'user.dblclick',

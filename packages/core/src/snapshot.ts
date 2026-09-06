@@ -2,12 +2,25 @@ import type { DomNodeSnapshot, RecordingConfig, RecordingSnapshot } from './mode
 import { shouldRedactElementValue, shouldRedactFieldValue } from './redaction.js';
 import { buildDomPath, generateSelectors, resolveSelector } from './selectors.js';
 
+export type CaptureSnapshotOptions = {
+  // `html` clones and serializes the *entire* subtree with no size bound (unlike `document`,
+  // which is capped by maxTextLength/maxSubtreeSize) — cheap for the one-off bookend snapshots
+  // a recording takes, but ruinous if repeated on every bracketed action: a handful of clicks
+  // on a normal-sized page is enough to blow past chrome.storage.session's 10MB quota (see
+  // apps/extension/service-worker.js, which persists the whole growing recording on every
+  // event). Callers that only need the bounded `document` tree — e.g. the inline per-action/
+  // idle snapshots in browser-bootstrap.ts — should pass `includeHtml: false`.
+  includeHtml?: boolean;
+};
+
 export function captureRecordingSnapshot(
   document: Document,
   config: RecordingConfig = {},
+  options: CaptureSnapshotOptions = {},
 ): RecordingSnapshot {
   const scopeElement = resolveSelector(document, config.scopeSelector);
-  const html = serializeDocumentHtml(document, config, scopeElement);
+  const includeHtml = options.includeHtml ?? true;
+  const html = includeHtml ? serializeDocumentHtml(document, config, scopeElement) : '';
   return {
     url: config.redactUrls ? redactUrl(document.URL) : document.URL,
     title: document.title,

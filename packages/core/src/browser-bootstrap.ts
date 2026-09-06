@@ -56,6 +56,10 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
     if (typeof fn === 'function') fn(payload);
   };
 
+  // Bookend snapshots (the initial emit below and __domRecorderSnapshot, used for
+  // finalSnapshot) need the full serialized `html` for export/AI-drop. Inline per-action/idle
+  // snapshots don't — see captureRecordingSnapshot's includeHtml doc — so they're captured
+  // separately via emitSnapshot below without it.
   const snapshot = () => captureRecordingSnapshot(document, config);
 
   const captureActionSnapshots = config.captureActionSnapshots !== false;
@@ -79,7 +83,7 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
       type: 'snapshot',
-      data: { snapshot: snapshot(), reason },
+      data: { snapshot: captureRecordingSnapshot(document, config, { includeHtml: false }), reason },
     });
   };
 
