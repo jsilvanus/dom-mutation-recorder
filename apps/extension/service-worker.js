@@ -221,12 +221,41 @@ async function syncState() {
 }
 
 async function persist() {
-  await chrome.storage.session.set({
-    [STORAGE_KEY]: {
-      activeTabId: state.activeTabId,
-      recording: state.recording,
-    },
-  });
+  try {
+    await chrome.storage.session.set({
+      [STORAGE_KEY]: {
+        activeTabId: state.activeTabId,
+        recording: state.recording,
+      },
+    });
+  } catch (error) {
+    if (!state.recording || !isQuotaError(error)) throw error;
+    // chrome.storage.session has a hard 10MB cap that no amount of per-snapshot trimming (see
+    // captureRecordingSnapshot's includeHtml option) fully rules out on a long-enough recording
+    // or a big-enough page. Rather than leave the recording permanently unpersisted from here
+    // on — silently losing everything since the last successful write if the service worker
+    // gets suspended — drop the DOM tree from older inline snapshot events (keeping the most
+    // recent one, and the lightweight action/mutation events, intact) and retry once.
+    trimSnapshotPayloads(state.recording);
+    await chrome.storage.session.set({
+      [STORAGE_KEY]: {
+        activeTabId: state.activeTabId,
+        recording: state.recording,
+      },
+    });
+  }
+}
+
+function isQuotaError(error) {
+  return /quota/i.test(error?.message || '');
+}
+
+function trimSnapshotPayloads(recording) {
+  const snapshotEvents = recording.events.filter((event) => event.type === 'snapshot' && event.data?.snapshot);
+  for (const event of snapshotEvents.slice(0, -1)) {
+    event.data.snapshot = null;
+    event.data.omittedForQuota = true;
+  }
 }
 
 function buildSnapshotState() {
