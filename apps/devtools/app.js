@@ -91,13 +91,21 @@ els.copyEvidence.addEventListener('click', async () => {
 els.file.addEventListener('change', async () => {
   const file = els.file.files?.[0];
   if (!file) return;
-  const content = await file.text();
-  state.loadedRecording = JSON.parse(content);
-  state.recording = null;
-  state.session = null;
-  renderLoadedRecording();
-  setStatus('Loaded recording file', 'idle');
-  updateButtons();
+  try {
+    const content = await file.text();
+    const parsed = JSON.parse(content);
+    if (!isRecordingLike(parsed)) {
+      throw new Error('Invalid recording file');
+    }
+    state.loadedRecording = parsed;
+    state.recording = null;
+    state.session = null;
+    renderLoadedRecording();
+    setStatus('Loaded recording file', 'idle');
+    updateButtons();
+  } catch {
+    setStatus('Invalid recording file', 'error');
+  }
 });
 
 function canAccessPreview() {
@@ -289,7 +297,7 @@ function buildUserEventData(event, target, win) {
   }
   if (win && (target instanceof win.HTMLInputElement || target instanceof win.HTMLTextAreaElement)) {
     if (event.type === 'input' || event.type === 'change') {
-      data.before = lastValues.get(target) ?? target.value;
+      data.before = lastValues.get(target) ?? (isRedactedField(target) ? '[redacted]' : target.value);
       data.after = isRedactedField(target) ? '[redacted]' : target.value;
       lastValues.set(target, data.after);
     }
@@ -479,7 +487,7 @@ function buildPath(element) {
 }
 
 function isRedactedField(element) {
-  return shouldRedactValue((element.getAttribute('type') || 'text').toLowerCase());
+  return (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') && shouldRedactValue((element.getAttribute('type') || 'text').toLowerCase());
 }
 
 function shouldRedactValue(type) {
@@ -614,7 +622,7 @@ function selectEvent(event, item) {
     ['Role', event.target?.role || '—'],
   ]) {
     const row = document.createElement('div');
-    row.innerHTML = `<strong>${label}</strong><span>${escapeHtml(value)}</span>`;
+    row.innerHTML = `<strong>${escapeHtml(label)}</strong><span>${escapeHtml(value)}</span>`;
     els.selectedMeta.append(row);
   }
   updateButtons();
@@ -707,6 +715,10 @@ function escapeHtml(value) {
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;');
+}
+
+function isRecordingLike(value) {
+  return Boolean(value && typeof value === 'object' && Array.isArray(value.events));
 }
 
 renderSummary(null);

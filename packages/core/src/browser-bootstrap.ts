@@ -140,7 +140,7 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
     url: config.redactUrls ? redactUrl(document.URL) : document.URL,
     title: document.title,
     html: serializeHtml(document),
-    document: snapshotNode(document.documentElement) || { kind: 'document', children: [], path: 'html' },
+    document: snapshotNode(document) || { kind: 'document', children: [], path: 'html' },
   });
   const redactUrl = (value: string) => {
     try {

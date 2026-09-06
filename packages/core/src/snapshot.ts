@@ -100,10 +100,6 @@ function serializeAttributes(element: Element, config: RecordingConfig): Record<
     const value = shouldRedactValue(element, config) ? '[redacted]' : truncate(element.value, config.maxTextLength ?? 2_000);
     attributes.value = value;
   }
-  if (element instanceof HTMLInputElement && element.type === 'password' && config.redactPasswords !== false) {
-    attributes.type = 'password';
-    attributes.value = '[redacted]';
-  }
   return attributes;
 }
 

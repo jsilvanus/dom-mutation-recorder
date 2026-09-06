@@ -41,7 +41,7 @@ export class DomRecorder {
         | { snapshot?: RecordingSnapshot | null; data?: Record<string, unknown> };
       if (event && typeof event === 'object' && 'snapshot' in event && event.snapshot) {
         if (!state.initialSnapshot) state.initialSnapshot = event.snapshot;
-        else state.finalSnapshot = event.snapshot;
+        state.finalSnapshot = event.snapshot;
         return;
       }
       if (event && typeof event === 'object' && typeof (event as RecordingEvent).type === 'string') {
@@ -124,7 +124,7 @@ async function hydrateSnapshot(
   }).catch(() => null);
   if (!snapshot) return;
   if (!state.initialSnapshot) state.initialSnapshot = snapshot;
-  else state.finalSnapshot = snapshot;
+  state.finalSnapshot = snapshot;
 }
 
 async function captureSnapshotFallback(page: Page, config: RecordingConfig): Promise<RecordingSnapshot> {
