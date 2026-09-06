@@ -1,4 +1,5 @@
 import type { RecordingConfig, RecordingTarget } from './model.js';
+import { isSnapshotWorthyActionType } from './model.js';
 import { describeElement, resolveSelector } from './selectors.js';
 import { captureRecordingSnapshot } from './snapshot.js';
 import { describeMutationRecord } from './mutations.js';
@@ -97,7 +98,9 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
       target,
       data,
     });
-    if (captureActionSnapshots) emitSnapshot('action');
+    // A full-page snapshot clones and serializes the whole DOM — too expensive to run on
+    // every micro-event a gesture is made of, so only genuinely discrete actions get one.
+    if (captureActionSnapshots && isSnapshotWorthyActionType(type)) emitSnapshot('action');
   };
 
   const lastValues = new WeakMap<Element, string>();

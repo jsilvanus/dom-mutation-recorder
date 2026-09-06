@@ -156,6 +156,33 @@ export function isNoisyActionEventType(type: string): boolean {
   return NOISY_ACTION_EVENT_TYPES.has(type as UserEventType);
 }
 
+// Actions worth bracketing with an inline snapshot (see RecordingConfig.captureActionSnapshots).
+// Deliberately narrow: a full DOM snapshot clones and serializes the whole page, which is too
+// expensive to run on every micro-event a gesture is made of (pointerdown/mousedown/focus
+// before a click, keydown/keyup around a keypress) — doing so on high-frequency events like
+// pointerover/mouseover (which fire continuously just from moving the mouse) previously froze
+// the page solid and blew past storage quotas. Only genuinely discrete, low-frequency actions
+// get bracketed; everything else still appears in the raw event stream, just without its own
+// snapshot.
+const SNAPSHOT_WORTHY_ACTION_TYPES = new Set<UserEventType | HistoryEventType>([
+  'user.click',
+  'user.dblclick',
+  'user.input',
+  'user.change',
+  'user.select',
+  'user.submit',
+  'user.reset',
+  'user.contextmenu',
+  'user.popstate',
+  'user.hashchange',
+  'history.pushState',
+  'history.replaceState',
+]);
+
+export function isSnapshotWorthyActionType(type: string): boolean {
+  return SNAPSHOT_WORTHY_ACTION_TYPES.has(type as UserEventType | HistoryEventType);
+}
+
 export type ActionTransaction = {
   id: string;
   action: RecordingEvent;

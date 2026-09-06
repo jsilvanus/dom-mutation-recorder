@@ -10,6 +10,7 @@ import {
   correlateRecording as correlateRecordingCore,
   describeElement as describeElementCore,
   describeMutationRecord,
+  isSnapshotWorthyActionType,
   shouldRedactElementValue,
 } from '../dist/packages/core/src/index.js';
 
@@ -254,7 +255,9 @@ function attachRecordingSession(session) {
       target,
       data,
     });
-    if (recordingOptions.captureActionSnapshots !== false) emitSnapshot('action');
+    // A full-page snapshot clones and serializes the whole DOM — too expensive to run on
+    // every micro-event a gesture is made of, so only genuinely discrete actions get one.
+    if (recordingOptions.captureActionSnapshots !== false && isSnapshotWorthyActionType(type)) emitSnapshot('action');
     renderEvents(currentEvents());
   };
 

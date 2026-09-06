@@ -10,6 +10,7 @@ import {
   generateSelectors,
   isActionEventType,
   isNoisyActionEventType,
+  isSnapshotWorthyActionType,
   serializeRecording,
 } from '../packages/core/src/index.js';
 import type { Recording } from '../packages/core/src/model.js';
@@ -270,6 +271,28 @@ describe('core recording', () => {
     expect(text).toContain('#count text changed');
     expect(text).toContain('FINAL STATE');
     expect(text).toContain('<html>final</html>');
+  });
+
+  it('isSnapshotWorthyActionType excludes high-frequency micro-events, including hover/scroll', () => {
+    expect(isSnapshotWorthyActionType('user.click')).toBe(true);
+    expect(isSnapshotWorthyActionType('user.input')).toBe(true);
+    expect(isSnapshotWorthyActionType('history.pushState')).toBe(true);
+    // These compose a single click/keypress gesture; snapshotting each one clones and
+    // serializes the whole page per micro-event, which previously froze the recorded page.
+    expect(isSnapshotWorthyActionType('user.pointerdown')).toBe(false);
+    expect(isSnapshotWorthyActionType('user.pointerup')).toBe(false);
+    expect(isSnapshotWorthyActionType('user.mousedown')).toBe(false);
+    expect(isSnapshotWorthyActionType('user.mouseup')).toBe(false);
+    expect(isSnapshotWorthyActionType('user.focus')).toBe(false);
+    expect(isSnapshotWorthyActionType('user.blur')).toBe(false);
+    expect(isSnapshotWorthyActionType('user.keydown')).toBe(false);
+    expect(isSnapshotWorthyActionType('user.keyup')).toBe(false);
+    expect(isSnapshotWorthyActionType('user.keypress')).toBe(false);
+    expect(isSnapshotWorthyActionType('user.resize')).toBe(false);
+    // Already known to be noisy/continuous.
+    expect(isSnapshotWorthyActionType('user.pointerover')).toBe(false);
+    expect(isSnapshotWorthyActionType('user.mouseover')).toBe(false);
+    expect(isSnapshotWorthyActionType('user.scroll')).toBe(false);
   });
 
   it('skipNoisyActionsInAiDrop omits hover/scroll actions (and their mutations) from the AI-drop text', () => {
