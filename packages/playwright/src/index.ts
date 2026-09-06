@@ -1,4 +1,4 @@
-import type { Page } from 'playwright';
+import type { Frame, Page } from 'playwright';
 import type { Recording, RecordingConfig, RecordingEvent, RecordingSnapshot } from '../../core/src/model.js';
 import { correlateRecording } from '../../core/src/correlation.js';
 import { createId, isoNow, RECORDING_SCHEMA_VERSION } from '../../core/src/model.js';
@@ -12,6 +12,7 @@ type RecorderState = {
   events: RecordingEvent[];
   initialSnapshot: RecordingSnapshot | null;
   finalSnapshot: RecordingSnapshot | null;
+  finalRecording?: Recording;
 };
 
 type SnapshotApi = {
@@ -20,6 +21,8 @@ type SnapshotApi = {
 };
 
 export class DomRecorder {
+  private navigationListener?: (frame: Frame) => Promise<void>;
+
   private constructor(private readonly page: Page, private readonly config: RecordingConfig, private readonly state: RecorderState) {}
 
   static async attach(page: Page, config: RecordingConfig = {}): Promise<DomRecorder> {
@@ -49,25 +52,34 @@ export class DomRecorder {
     await page.addInitScript(browserRecorderBootstrap, { channel, config });
     if (page.url() !== 'about:blank') {
       await page.evaluate(browserRecorderBootstrap, { channel, config });
-      await hydrateSnapshot(page, state, config, true);
+      await hydrateSnapshot(page, state, config);
     }
 
-    page.on('framenavigated', async (frame) => {
+    const recorder = new DomRecorder(page, config, state);
+    recorder.navigationListener = async (frame) => {
       if (frame !== page.mainFrame()) return;
-      await hydrateSnapshot(page, state, config, false);
-    });
-
-    return new DomRecorder(page, config, state);
+      await hydrateSnapshot(page, state, config);
+    };
+    page.on('framenavigated', recorder.navigationListener);
+    return recorder;
   }
 
   async stop(): Promise<Recording> {
-    const recording = await this.snapshot();
+    if (this.state.finalRecording) {
+      return this.state.finalRecording;
+    }
     await this.page.evaluate(() => {
       const api = window as unknown as SnapshotApi;
       api.__domRecorderStop?.();
       return null;
     }).catch(() => null);
-    return { ...recording, endedAt: isoNow() };
+    if (this.navigationListener) {
+      this.page.off('framenavigated', this.navigationListener);
+    }
+    const recording = await this.snapshot();
+    const finalized = { ...recording, endedAt: isoNow() };
+    this.state.finalRecording = finalized;
+    return finalized;
   }
 
   async export(directory: string, mode: 'concise' | 'developer' = 'concise'): Promise<void> {
@@ -80,7 +92,7 @@ export class DomRecorder {
   }
 
   private async snapshot(): Promise<Recording> {
-    await hydrateSnapshot(this.page, this.state, this.config, false);
+    await hydrateSnapshot(this.page, this.state, this.config);
     const initialSnapshot = this.state.initialSnapshot ?? (await captureSnapshotFallback(this.page, this.config));
     const finalSnapshot = this.state.finalSnapshot ?? initialSnapshot;
     const recording: Recording = {
@@ -105,14 +117,13 @@ async function hydrateSnapshot(
   page: Page,
   state: RecorderState,
   config: RecordingConfig,
-  preferInitial: boolean,
 ): Promise<void> {
   const snapshot = await page.evaluate(() => {
     const api = window as unknown as SnapshotApi;
     return api.__domRecorderSnapshot?.() || null;
   }).catch(() => null);
   if (!snapshot) return;
-  if (!state.initialSnapshot && preferInitial) state.initialSnapshot = snapshot;
+  if (!state.initialSnapshot) state.initialSnapshot = snapshot;
   else state.finalSnapshot = snapshot;
 }
 

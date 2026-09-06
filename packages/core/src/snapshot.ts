@@ -1,4 +1,5 @@
 import type { DomNodeSnapshot, RecordingConfig, RecordingSnapshot } from './model.js';
+import { shouldRedactFieldValue } from './redaction.js';
 import { buildDomPath, generateSelectors } from './selectors.js';
 
 export function captureRecordingSnapshot(
@@ -77,7 +78,8 @@ export function serializeDocumentHtml(document: Document, config: RecordingConfi
   }
   for (const input of Array.from(clone.querySelectorAll('input, textarea'))) {
     const type = (input.getAttribute('type') || 'text').toLowerCase();
-    if ((type === 'password' && config.redactPasswords !== false) || (type !== 'password' && config.redactInputValues !== false)) {
+    const tag = input.tagName.toLowerCase();
+    if (shouldRedactFieldValue(tag, type, config)) {
       input.setAttribute('value', '[redacted]');
     }
   }
@@ -108,10 +110,7 @@ function serializeAttributes(element: Element, config: RecordingConfig): Record<
 function shouldRedactValue(element: Element, config: RecordingConfig): boolean {
   const tag = element.tagName.toLowerCase();
   const type = element.getAttribute('type')?.toLowerCase() || 'text';
-  if (tag === 'input' && type === 'password') {
-    return config.redactPasswords !== false;
-  }
-  return config.redactInputValues !== false && (tag === 'input' || tag === 'textarea');
+  return shouldRedactFieldValue(tag, type, config);
 }
 
 function truncate(value: string, max: number): string {

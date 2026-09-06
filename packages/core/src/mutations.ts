@@ -50,7 +50,8 @@ export function describeMutationRecord(
       });
     }
     for (const removedNode of Array.from(record.removedNodes)) {
-      const position = Math.max(0, Array.from(record.target.childNodes).length);
+      const siblings = Array.from(record.target.childNodes);
+      const position = record.previousSibling ? Math.max(0, siblings.indexOf(record.previousSibling as ChildNode) + 1) : 0;
       events.push({
         id: crypto.randomUUID(),
         timestamp,

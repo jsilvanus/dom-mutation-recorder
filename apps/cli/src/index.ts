@@ -12,7 +12,6 @@ async function main(): Promise<void> {
     return;
   }
   const recording = deserializeRecording(await readFile(resolve(input), 'utf8'));
-  const format = readFlag(args, '--format') ?? 'markdown';
   const out = readFlag(args, '--out');
   const mode = (readFlag(args, '--mode') as 'concise' | 'developer' | null) ?? 'concise';
 
@@ -22,7 +21,7 @@ async function main(): Promise<void> {
   }
   if (command === 'export') {
     if (!out) throw new Error('Missing --out directory');
-    await exportRecordingArtifacts(recording, resolve(out), { mode: format === 'markdown' ? mode : 'concise' });
+    await exportRecordingArtifacts(recording, resolve(out), { mode });
     return;
   }
   printHelp();
@@ -35,7 +34,7 @@ function readFlag(args: string[], flag: string): string | null {
 
 function printHelp(): void {
   console.log('domrec inspect recording.json');
-  console.log('domrec export recording.json --out ./recording --format markdown');
+  console.log('domrec export recording.json --out ./recording --mode developer');
 }
 
 main().catch((error) => {

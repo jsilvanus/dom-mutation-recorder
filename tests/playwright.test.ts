@@ -1,11 +1,12 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { extname, resolve, sep } from 'node:path';
+import { extname, join, resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DomRecorder } from '../packages/playwright/src/index.js';
 
 const publicDir = resolve(process.cwd(), 'apps/demo/public');
+const allowedFiles = new Set(['index.html', 'app.js', 'style.css']);
 
 let server: ReturnType<typeof createServer>;
 let baseUrl = '';
@@ -13,12 +14,12 @@ let baseUrl = '';
 beforeAll(async () => {
   server = createServer(async (req, res) => {
     const pathname = req.url === '/' ? 'index.html' : decodeURIComponent(req.url || '/index.html').replace(/^\/+/, '');
-    const file = resolve(publicDir, pathname);
-    if (!file.startsWith(`${publicDir}${sep}`) && file !== resolve(publicDir)) {
+    if (!allowedFiles.has(pathname)) {
       res.statusCode = 404;
       res.end('not found');
       return;
     }
+    const file = join(publicDir, pathname);
     try {
       const content = await readFile(file);
       res.setHeader('content-type', mimeType(file));

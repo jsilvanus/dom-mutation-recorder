@@ -68,7 +68,7 @@ await recorder.export('./test-results/add-item', 'concise');
 
 ```bash
 npm run cli -- inspect recording.json
-npm run cli -- export recording.json --out ./recording --format markdown
+npm run cli -- export recording.json --out ./recording --mode developer
 ```
 
 ## Demo app
@@ -102,4 +102,3 @@ Recordings may contain page content and should be treated as sensitive artifacts
 - accessibility naming is heuristic, not a full accessibility tree
 - navigation correlation is basic and can be extended
 - the Chrome side is currently an adapter package, not a full packaged extension
-

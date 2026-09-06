@@ -1,4 +1,5 @@
 import type { RecordingConfig } from './model.js';
+import { shouldRedactFieldValue } from './redaction.js';
 
 export type BrowserRecorderInit = {
   channel: string;
@@ -23,7 +24,14 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
     const tag = element.tagName.toLowerCase();
     if (tag === 'button') return 'button';
     if (tag === 'a' && element.hasAttribute('href')) return 'link';
-    if (tag === 'textarea' || tag === 'input') return 'textbox';
+    if (tag === 'textarea') return 'textbox';
+    if (tag === 'input') {
+      const type = (element.getAttribute('type') || 'text').toLowerCase();
+      if (type === 'checkbox') return 'checkbox';
+      if (type === 'radio') return 'radio';
+      if (type === 'submit' || type === 'button' || type === 'reset') return 'button';
+      return 'textbox';
+    }
     if (tag === 'select') return 'combobox';
     return null;
   };
@@ -78,8 +86,7 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
   const shouldRedactValue = (element: Element) => {
     const tag = element.tagName.toLowerCase();
     const type = element.getAttribute('type')?.toLowerCase() || 'text';
-    if (tag === 'input' && type === 'password') return config.redactPasswords !== false;
-    return config.redactInputValues !== false && (tag === 'input' || tag === 'textarea');
+    return shouldRedactFieldValue(tag, type, config);
   };
   const snapshotNode = (node: Node, depth = 0): unknown => {
     if (depth > 20) return null;
@@ -122,7 +129,8 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
     }
     for (const input of Array.from(clone.querySelectorAll('input, textarea'))) {
       const type = (input.getAttribute('type') || 'text').toLowerCase();
-      if ((type === 'password' && config.redactPasswords !== false) || (type !== 'password' && config.redactInputValues !== false)) {
+      const tag = input.tagName.toLowerCase();
+      if (shouldRedactFieldValue(tag, type, config)) {
         input.setAttribute('value', '[redacted]');
       }
     }
@@ -194,6 +202,8 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
           });
         }
         for (const node of Array.from(record.removedNodes)) {
+          const siblings = Array.from(record.target.childNodes);
+          const position = record.previousSibling ? Math.max(0, siblings.indexOf(record.previousSibling as ChildNode) + 1) : 0;
           emit({
             id: crypto.randomUUID(),
             timestamp: new Date().toISOString(),
@@ -201,7 +211,7 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
             target: parent,
             data: {
               parent,
-              position: Math.max(0, Array.from(record.target.childNodes).length),
+              position,
               subtree: snapshotNode(node),
             },
           });
@@ -249,4 +259,5 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
   emit({ snapshot: snapshot() });
   (window as unknown as Record<string, unknown>).__domRecorderSnapshot = snapshot;
   (window as unknown as Record<string, unknown>).__domRecorderStop = () => observer.disconnect();
+
 }
