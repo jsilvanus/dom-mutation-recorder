@@ -92,6 +92,19 @@ Open the DevTools panel at the demo server URL and use the real control bar to:
 
 The same UI still supports loading a `recording.json` file for inspection.
 
+## Chrome extension workflow
+
+Load `apps/extension` as an unpacked extension in Chrome. Then:
+
+1. Open the extension panel.
+2. Navigate the active tab to any page, including Google.
+3. Click **Start recording**.
+4. Perform the interaction.
+5. Click **Stop**.
+6. Click **Copy AI drop** or **Copy JSON**.
+
+The extension attaches to the active tab and reinjects the recorder after same-tab navigations, so search-result navigations are captured too.
+
 ## AI export
 
 Exports:

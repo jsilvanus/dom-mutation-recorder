@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "DOM Mutation Recorder",
+  "version": "0.1.0",
+  "description": "Record DOM reactions on any page and export AI-ready evidence.",
+  "permissions": ["activeTab", "scripting", "storage", "tabs", "sidePanel", "clipboardWrite"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "DOM Mutation Recorder"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  }
+}
