@@ -201,4 +201,28 @@ describe('browser-bootstrap bundle', () => {
     );
     expect(idleSnapshots).toHaveLength(1);
   });
+
+  it('does not snapshot on hover/micro-events, only on genuinely discrete actions', () => {
+    document.body.innerHTML = '<button id="go">Go</button>';
+    install();
+
+    const button = document.querySelector('#go')!;
+    // A single click gesture decomposes into several native events; a full-page snapshot on
+    // each one previously froze the page and blew past storage quotas.
+    button.dispatchEvent(new MouseEvent('pointerover', { bubbles: true }));
+    button.dispatchEvent(new MouseEvent('pointerenter', { bubbles: true }));
+    button.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    button.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+    button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    button.dispatchEvent(new Event('focus'));
+    button.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+    button.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    const types = events.map((event) => event.type);
+    expect(types.filter((type) => type !== 'snapshot')).toHaveLength(9);
+    // Only the click gets a bracketing snapshot.
+    expect(types.filter((type) => type === 'snapshot')).toHaveLength(1);
+    expect(types.at(-1)).toBe('snapshot');
+  });
 });
