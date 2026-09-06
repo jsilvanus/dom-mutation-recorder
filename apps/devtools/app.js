@@ -24,6 +24,7 @@ const els = {
   status: document.querySelector('#status'),
   file: document.querySelector('#file'),
   copySelector: document.querySelector('#copy-selector'),
+  copyAiDrop: document.querySelector('#copy-ai-drop'),
   copyEvidence: document.querySelector('#copy-evidence'),
   events: document.querySelector('#events'),
   preview: document.querySelector('#preview'),
@@ -70,6 +71,10 @@ els.exportEvidence.addEventListener('click', () => exportCurrentRecording('evide
 els.copySelector.addEventListener('click', async () => {
   const selector = state.selected?.target?.selector;
   if (selector) await navigator.clipboard.writeText(selector);
+});
+els.copyAiDrop.addEventListener('click', async () => {
+  const recording = currentRecording();
+  if (recording) await navigator.clipboard.writeText(buildAiDropText(recording));
 });
 els.copyEvidence.addEventListener('click', async () => {
   const recording = currentRecording();
@@ -622,7 +627,31 @@ function updateButtons() {
   els.exportRecording.disabled = !hasRecording;
   els.exportEvidence.disabled = !hasRecording;
   els.copySelector.disabled = !state.selected?.target?.selector;
+  els.copyAiDrop.disabled = !hasRecording;
   els.copyEvidence.disabled = !hasRecording;
+}
+
+function buildAiDropText(recording) {
+  const lines = [];
+  lines.push('PAGE');
+  lines.push(`URL: ${recording.url}`);
+  lines.push(`Title: ${recording.title}`);
+  lines.push('');
+  lines.push('INITIAL STATE');
+  lines.push(recording.initialSnapshot?.html || '—');
+  lines.push('');
+  lines.push('ACTIONS');
+  for (const [index, transaction] of (recording.transactions || []).entries()) {
+    lines.push(`Action ${index + 1}: ${transaction.action.type}`);
+    lines.push(`Target: ${transaction.action.target?.selector || transaction.action.target?.name || 'unknown'}`);
+    for (const change of transaction.semanticChanges || []) {
+      lines.push(`- ${change.summary}`);
+    }
+    lines.push('');
+  }
+  lines.push('FINAL STATE');
+  lines.push(recording.finalSnapshot?.html || '—');
+  return lines.join('\n');
 }
 
 function escapeHtml(value) {
