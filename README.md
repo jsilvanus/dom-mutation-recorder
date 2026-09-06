@@ -42,7 +42,11 @@ by every recording surface, in whichever way each one is able to consume it:
 
 Either way, `npm run build` needs to have been run at least once for `apps/devtools` and
 `apps/extension` to work — `apps/demo`'s server serves the compiled `dist/` output at `/dist/*`
-for the DevTools panel to import.
+for the DevTools panel to import, and `scripts/copy-core-for-extension.mjs` (`npm run
+build:extension-core`, part of `npm run build`) copies the same compiled output into
+`apps/extension/core/` so the extension's side panel/service worker (`apps/extension/shared.js`)
+can import `correlateRecording` from it too — an unpacked extension can only load files from
+within its own directory, so it can't fetch `dist/` over HTTP the way DevTools does.
 
 ## Recording flow
 
@@ -194,9 +198,9 @@ The same UI still supports loading a `recording.json` file for inspection.
 
 ## Chrome extension workflow
 
-Run `npm run build:browser-bootstrap` (or `npm run build`) at least once first — it generates
-`apps/extension/browser-bootstrap.bundle.js`, which the extension loads and isn't checked
-into git. Re-run it after pulling changes to `packages/core`.
+Run `npm run build` at least once first — it generates `apps/extension/browser-bootstrap.bundle.js`
+and `apps/extension/core/` (a copy of `packages/core`'s compiled output), which the extension
+loads and which aren't checked into git. Re-run it after pulling changes to `packages/core`.
 
 Load `apps/extension` as an unpacked extension in Chrome. Then:
 

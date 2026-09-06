@@ -5,8 +5,9 @@
   "type": "module",
   "description": "Lossless DOM recording and AI export toolkit for browser testing and extensions",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && npm run build:browser-bootstrap",
+    "build": "tsc -p tsconfig.build.json && npm run build:browser-bootstrap && npm run build:extension-core",
     "build:browser-bootstrap": "node scripts/build-browser-bootstrap.mjs",
+    "build:extension-core": "node scripts/copy-core-for-extension.mjs",
     "prepublishOnly": "npm run build",
     "pretest": "npm run build",
     "test": "vitest run",

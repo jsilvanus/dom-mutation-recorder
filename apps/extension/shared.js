@@ -1,3 +1,10 @@
+// apps/extension is loaded unpacked and can only load files from within its own directory —
+// unlike apps/devtools (which fetches packages/core's compiled output over HTTP), so
+// scripts/copy-core-for-extension.mjs (npm run build:extension-core) copies it in here.
+import { correlateRecording } from './core/index.js';
+
+export { correlateRecording };
+
 export const DEFAULT_RECORDING_CONFIG = {
   redactInputValues: true,
   redactPasswords: true,
@@ -5,43 +12,8 @@ export const DEFAULT_RECORDING_CONFIG = {
   scopeSelector: null,
 };
 
-export function correlateRecording(recording, windowMs = DEFAULT_RECORDING_CONFIG.correlationWindowMs) {
-  const userEvents = recording.events.filter((event) => event.type.startsWith('user.'));
-  const transactions = userEvents.map((action) => ({
-    id: action.id,
-    action,
-    mutations: [],
-    semanticChanges: [],
-  }));
-  for (const event of recording.events) {
-    if (!event.type.startsWith('dom.')) continue;
-    const actionIndex = findActionIndex(userEvents, event.timestamp, windowMs);
-    if (actionIndex >= 0) {
-      transactions[actionIndex].mutations.push(event);
-    }
-  }
-  for (const transaction of transactions) {
-    transaction.semanticChanges = transaction.mutations.map((mutation) => ({
-      kind:
-        mutation.type === 'dom.text'
-          ? 'text'
-          : mutation.type === 'dom.attributes'
-            ? 'attribute'
-            : mutation.type === 'dom.added'
-              ? 'node-added'
-              : 'node-removed',
-      summary: describeMutation(mutation),
-      target: mutation.target,
-      selector: mutation.target?.selector,
-      before: mutation.data?.oldText ?? mutation.data?.oldValue ?? undefined,
-      after: mutation.data?.newText ?? mutation.data?.newValue ?? undefined,
-    }));
-  }
-  return transactions;
-}
-
 export function buildAiDropText(recording) {
-  const transactions = recording.transactions || correlateRecording(recording);
+  const transactions = recording.transactions || correlateRecording(recording, DEFAULT_RECORDING_CONFIG);
   const lines = [];
   lines.push('PAGE');
   lines.push(`URL: ${recording.url}`);
@@ -63,28 +35,4 @@ export function buildAiDropText(recording) {
   lines.push('FINAL STATE');
   lines.push(recording.finalSnapshot?.html || '—');
   return lines.join('\n');
-}
-
-function findActionIndex(actions, timestamp, windowMs) {
-  const time = Date.parse(timestamp);
-  let best = -1;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (let index = 0; index < actions.length; index += 1) {
-    const actionTime = Date.parse(actions[index].timestamp);
-    const distance = time - actionTime;
-    if (distance < 0 || distance > windowMs) continue;
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      best = index;
-    }
-  }
-  return best;
-}
-
-function describeMutation(mutation) {
-  if (mutation.type === 'dom.text') return `${mutation.target?.selector || 'element'} text changed`;
-  if (mutation.type === 'dom.attributes') return `${mutation.target?.selector || 'element'} attribute changed`;
-  if (mutation.type === 'dom.added') return `${mutation.target?.selector || 'element'} added`;
-  if (mutation.type === 'dom.removed') return `${mutation.target?.selector || 'element'} removed`;
-  return mutation.type;
 }

@@ -36,16 +36,19 @@ cross-realm node. Only the event-handling glue that needs `win.KeyboardEvent`-st
 realm-specific classes (there's no core equivalent for reading live DOM `Event`s) stays local
 to `apps/devtools/app.js`, mirroring `browser-bootstrap.ts`'s `emitUser`.
 
-`apps/extension/shared.js` still has its own small amount of genuinely extension-specific,
-non-injected code (`correlateRecording`, `buildAiDropText`, `DEFAULT_RECORDING_CONFIG`) — that
-code runs in the extension's own module context (service worker / side panel), not injected
-into a page, so it isn't under the self-containment constraint either. It remains a separate
-implementation from `packages/core`'s equivalent functions (`correlateRecording`,
-`buildSemanticDiff`) because an unpacked Chrome extension can only load files from within its
-own directory — unlike `apps/devtools`, it can't `import` from the repo's `dist/` over HTTP.
-Copying `packages/core`'s compiled output into `apps/extension/` at build time (the same way
-`scripts/build-browser-bootstrap.mjs` already copies the bundle there) would let it import
-from core directly instead.
+`apps/extension/shared.js` also runs in the extension's own module context (service worker /
+side panel), not injected into a page, so it isn't under the self-containment constraint
+either — but an unpacked Chrome extension can only load files from within its own directory,
+unlike `apps/devtools`, which can `import` from the repo's `dist/` over HTTP. So
+`scripts/copy-core-for-extension.mjs` (`npm run build:extension-core`) copies `packages/core`'s
+compiled output into `apps/extension/core/`, and `shared.js` imports `correlateRecording` from
+`./core/index.js` instead of maintaining its own copy. `shared.js` keeps only
+`buildAiDropText`/`DEFAULT_RECORDING_CONFIG` locally — `buildAiDropText`'s clipboard-text
+format has no equivalent in `packages/core`/`packages/exporter` (which renders Markdown, not
+this format), and it's genuinely specific to this UI. `apps/devtools/app.js`'s equivalent
+clipboard export (`buildAiDropText` there too) is a small, separate, near-identical duplicate
+of this one — not part of the recorder logic the rest of this doc is about, and not yet
+unified.
 
 ## Before pushing
 
@@ -57,5 +60,5 @@ npm run build
 ```
 
 `npm test`'s `pretest` script and `npm run build` both rebuild
-`apps/extension/browser-bootstrap.bundle.js` — if you're testing the unpacked extension
-manually in Chrome, re-run one of them after changing `packages/core`.
+`apps/extension/browser-bootstrap.bundle.js` and `apps/extension/core/` — if you're testing
+the unpacked extension manually in Chrome, re-run one of them after changing `packages/core`.

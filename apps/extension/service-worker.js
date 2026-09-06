@@ -103,7 +103,7 @@ async function stopRecording() {
     state.recording.title = snapshot.title || state.recording.title;
   }
   state.recording.endedAt = new Date().toISOString();
-  state.recording.transactions = correlateRecording(state.recording, DEFAULT_RECORDING_CONFIG.correlationWindowMs);
+  state.recording.transactions = correlateRecording(state.recording, DEFAULT_RECORDING_CONFIG);
   await stopRecorderInTab(tabId);
   state.activeTabId = null;
   await persist();
