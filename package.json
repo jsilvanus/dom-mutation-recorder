@@ -5,6 +5,8 @@
   "type": "module",
   "description": "Lossless DOM recording and AI export toolkit for browser testing and extensions",
   "scripts": {
+    "build:browser-bootstrap": "node scripts/build-browser-bootstrap.mjs",
+    "pretest": "npm run build:browser-bootstrap",
     "test": "vitest run",
     "test:unit": "vitest run tests/core.test.ts",
     "test:playwright": "vitest run tests/playwright.test.ts",
@@ -27,6 +29,7 @@
     "@changesets/cli": "^3.0.2",
     "@types/jsdom": "^20.0.1",
     "@types/node": "^22.18.6",
+    "esbuild": "^0.28.2",
     "jsdom": "^26.1.0",
     "playwright": "^1.56.1",
     "tsx": "^4.20.5",

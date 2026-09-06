@@ -5,3 +5,7 @@ coverage
 test-results
 playwright-report
 *.log
+
+# Built by scripts/build-browser-bootstrap.mjs (npm run build:browser-bootstrap); required
+# before loading apps/extension unpacked in Chrome. See README.
+apps/extension/browser-bootstrap.bundle.js

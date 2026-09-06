@@ -3,7 +3,7 @@ import type { Recording, RecordingConfig, RecordingEvent, RecordingSnapshot } fr
 import { correlateRecording } from '../../core/src/correlation.js';
 import { createId, isoNow, RECORDING_SCHEMA_VERSION } from '../../core/src/model.js';
 import { serializeRecording } from '../../core/src/serialization.js';
-import { browserRecorderBootstrap } from './browser-init.js';
+import { buildBrowserRecorderInitScript } from './browser-init.js';
 import { exportRecordingArtifacts } from '../../exporter/src/index.js';
 
 type RecorderState = {
@@ -49,9 +49,10 @@ export class DomRecorder {
       }
     });
 
-    await page.addInitScript(browserRecorderBootstrap, { channel, config });
+    const initScript = buildBrowserRecorderInitScript({ channel, config });
+    await page.addInitScript({ content: initScript });
     if (page.url() !== 'about:blank') {
-      await page.evaluate(browserRecorderBootstrap, { channel, config });
+      await page.evaluate(initScript);
       await hydrateSnapshot(page, state, config);
     }
 

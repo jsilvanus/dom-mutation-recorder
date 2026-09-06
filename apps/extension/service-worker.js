@@ -1,4 +1,4 @@
-import { DEFAULT_RECORDING_CONFIG, browserRecorderBootstrap, correlateRecording } from './shared.js';
+import { DEFAULT_RECORDING_CONFIG, correlateRecording } from './shared.js';
 
 const STORAGE_KEY = 'domRecorderExtensionState';
 
@@ -123,11 +123,26 @@ function appendEvent(payload) {
   }
 }
 
+// The recorder itself (selector generation, snapshotting, mutation handling) lives once in
+// packages/core/src/browser-bootstrap.ts and is bundled by scripts/build-browser-bootstrap.mjs
+// into browser-bootstrap.bundle.js (npm run build:browser-bootstrap) — the same bundle
+// packages/playwright injects into pages. It expects to emit through a window[channel]
+// callback (matching Playwright's page.exposeFunction bridge), so the wiring below installs
+// a small channel that forwards to chrome.runtime.sendMessage instead.
 async function injectRecorder(tabId, config = {}) {
   await chrome.scripting.executeScript({
     target: { tabId },
-    func: browserRecorderBootstrap,
-    args: [{ tabId, config: { ...DEFAULT_RECORDING_CONFIG, ...config } }],
+    files: ['browser-bootstrap.bundle.js'],
+  });
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (channel, forTabId, recorderConfig) => {
+      window[channel] = (payload) => {
+        chrome.runtime.sendMessage({ type: 'domrecorder:event', tabId: forTabId, payload });
+      };
+      window.DomRecorderBootstrap.browserRecorderBootstrap({ channel, config: recorderConfig });
+    },
+    args: ['__domRecorderEmit', tabId, { ...DEFAULT_RECORDING_CONFIG, ...config }],
   });
 }
 

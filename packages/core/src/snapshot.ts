@@ -75,6 +75,9 @@ export function serializeNode(
 
 export function serializeDocumentHtml(document: Document, config: RecordingConfig = {}, scopeElement?: Element | null): string {
   const root = scopeElement ?? document.documentElement;
+  // documentElement can briefly be null on a document that hasn't started parsing yet (e.g.
+  // an init script running at the very start of navigation, before <html> exists).
+  if (!root) return '<!doctype html>\n<html></html>';
   // cloneNode(true) only copies HTML attributes, not the live `.value` IDL property that
   // typing/scripting updates on inputs and textareas — read the live values from the
   // originals (in the same traversal order as the clone) before they're discarded.
