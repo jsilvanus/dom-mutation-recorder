@@ -9,6 +9,7 @@ import {
   describeMutationRecord,
   generateSelectors,
   isActionEventType,
+  isNoisyActionEventType,
   serializeRecording,
 } from '../packages/core/src/index.js';
 import type { Recording } from '../packages/core/src/model.js';
@@ -269,6 +270,66 @@ describe('core recording', () => {
     expect(text).toContain('#count text changed');
     expect(text).toContain('FINAL STATE');
     expect(text).toContain('<html>final</html>');
+  });
+
+  it('skipNoisyActionsInAiDrop omits hover/scroll actions (and their mutations) from the AI-drop text', () => {
+    expect(isNoisyActionEventType('user.pointerover')).toBe(true);
+    expect(isNoisyActionEventType('user.mouseout')).toBe(true);
+    expect(isNoisyActionEventType('user.scroll')).toBe(true);
+    expect(isNoisyActionEventType('user.click')).toBe(false);
+    expect(isNoisyActionEventType('history.pushState')).toBe(false);
+
+    const recording: Recording = {
+      id: 'rec',
+      version: '1.0.0',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      endedAt: '2026-01-01T00:00:01.000Z',
+      url: 'https://example.com',
+      title: 'Example',
+      scopeSelector: null,
+      userAgent: 'test',
+      initialSnapshot: { url: 'https://example.com', title: 'Example', html: '<html>initial</html>', document: { kind: 'document', children: [] } },
+      finalSnapshot: { url: 'https://example.com', title: 'Example', html: '<html>final</html>', document: { kind: 'document', children: [] } },
+      events: [
+        {
+          id: 'h1',
+          timestamp: '2026-01-01T00:00:00.000Z',
+          type: 'user.mouseover',
+          target: { selector: '.tooltip-trigger' },
+          data: {},
+        },
+        {
+          id: 'm0',
+          timestamp: '2026-01-01T00:00:00.010Z',
+          type: 'dom.added',
+          target: { selector: '.tooltip' },
+          data: { subtree: { kind: 'element' } },
+        },
+        {
+          id: 'a1',
+          timestamp: '2026-01-01T00:00:00.500Z',
+          type: 'user.click',
+          target: { selector: 'button', name: 'Add' },
+          data: {},
+        },
+        {
+          id: 'm1',
+          timestamp: '2026-01-01T00:00:00.600Z',
+          type: 'dom.text',
+          target: { selector: '#count' },
+          data: { oldText: '2', newText: '3' },
+        },
+      ],
+    };
+
+    const fullText = buildAiDropText(recording);
+    expect(fullText).toContain('Action 1: user.mouseover');
+    expect(fullText).toContain('Action 2: user.click');
+
+    const filteredText = buildAiDropText(recording, { skipNoisyActionsInAiDrop: true });
+    expect(filteredText).not.toContain('user.mouseover');
+    expect(filteredText).toContain('Action 1: user.click');
+    expect(filteredText).toContain('#count text changed');
   });
 
   it('redacts a password value attribute change in mutation events', () => {

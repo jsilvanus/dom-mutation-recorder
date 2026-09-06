@@ -13,6 +13,7 @@ const els = {
   tabInfo: document.querySelector('#tab-info'),
   scopeInfo: document.querySelector('#scope-info'),
   preview: document.querySelector('#preview'),
+  hideNoisy: document.querySelector('#hide-noisy'),
 };
 
 let currentState = null;
@@ -20,6 +21,10 @@ let activeTab = null;
 let selectedScopeSelector = null;
 let selectedScopeLabel = null;
 let picking = false;
+
+function aiDropConfig() {
+  return { skipNoisyActionsInAiDrop: els.hideNoisy.checked };
+}
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type !== 'domrecorder:pick-result') return;
@@ -44,12 +49,13 @@ els.stop.addEventListener('click', () => void stopRecording());
 els.clear.addEventListener('click', () => void clearRecording());
 els.copyAi.addEventListener('click', async () => {
   const recording = currentState?.recording;
-  if (recording) await navigator.clipboard.writeText(buildAiDropText(recording));
+  if (recording) await navigator.clipboard.writeText(buildAiDropText(recording, aiDropConfig()));
 });
 els.copyJson.addEventListener('click', async () => {
   const recording = currentState?.recording;
   if (recording) await navigator.clipboard.writeText(JSON.stringify(recording, null, 2));
 });
+els.hideNoisy.addEventListener('change', () => render());
 
 chrome.tabs.onActivated?.addListener(() => void refresh());
 chrome.tabs.onUpdated?.addListener((tabId, changeInfo) => {
@@ -130,7 +136,7 @@ function render() {
 
   if (recording) {
     const transactions = recording.transactions?.length || 0;
-    els.preview.textContent = buildAiDropText(recording);
+    els.preview.textContent = buildAiDropText(recording, aiDropConfig());
     const parts = [
       `URL: ${recording.url || '—'}`,
       `Title: ${recording.title || '—'}`,

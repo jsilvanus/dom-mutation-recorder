@@ -46,6 +46,10 @@ export type RecordingConfig = SnapshotConfig & {
   captureActionSnapshots?: boolean;
   // How long DOM mutation activity must be quiet before an idle "settled" snapshot fires.
   idleSnapshotDelayMs?: number;
+  // When true, buildAiDropText omits transactions anchored on noisy hover/scroll actions (see
+  // isNoisyActionEventType) so the concise AI-facing summary stays readable. Only affects that
+  // text output — the raw event stream and JSON/evidence exports are unaffected.
+  skipNoisyActionsInAiDrop?: boolean;
 };
 
 export type DomNodeSnapshot = {
@@ -133,6 +137,23 @@ export type RecordingEvent =
 // events, but not dom.* mutations, snapshots, or the devtools-only 'navigation' marker.
 export function isActionEventType(type: string): boolean {
   return type.startsWith('user.') || type.startsWith('history.');
+}
+
+// Fires frequently during ordinary hovering/scrolling without being a deliberate, discrete
+// action. Worth keeping in the raw event stream for full reconstruction, but usually just
+// noise in a concise summary — see RecordingConfig.skipNoisyActionsInAiDrop.
+const NOISY_ACTION_EVENT_TYPES = new Set<UserEventType>([
+  'user.pointerover',
+  'user.pointerout',
+  'user.pointerenter',
+  'user.pointerleave',
+  'user.mouseover',
+  'user.mouseout',
+  'user.scroll',
+]);
+
+export function isNoisyActionEventType(type: string): boolean {
+  return NOISY_ACTION_EVENT_TYPES.has(type as UserEventType);
 }
 
 export type ActionTransaction = {

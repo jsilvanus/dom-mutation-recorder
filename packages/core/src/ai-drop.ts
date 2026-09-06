@@ -1,11 +1,15 @@
 import type { Recording, RecordingConfig } from './model.js';
+import { isNoisyActionEventType } from './model.js';
 import { correlateRecording } from './correlation.js';
 
 // Plain-text clipboard format for pasting a recording straight into an AI chat — distinct
 // from packages/exporter's Markdown summary.md, which is a file export (and can't be used
 // here anyway: it imports node:fs/promises, which isn't available in a browser).
 export function buildAiDropText(recording: Recording, config: RecordingConfig = {}): string {
-  const transactions = recording.transactions || correlateRecording(recording, config);
+  const allTransactions = recording.transactions || correlateRecording(recording, config);
+  const transactions = config.skipNoisyActionsInAiDrop
+    ? allTransactions.filter((transaction) => !isNoisyActionEventType(transaction.action.type))
+    : allTransactions;
   const lines: string[] = [];
   lines.push('PAGE');
   lines.push(`URL: ${recording.url}`);

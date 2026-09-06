@@ -63,6 +63,7 @@ const els = {
   copySelector: document.querySelector('#copy-selector'),
   copyAiDrop: document.querySelector('#copy-ai-drop'),
   copyEvidence: document.querySelector('#copy-evidence'),
+  hideNoisy: document.querySelector('#hide-noisy'),
   events: document.querySelector('#events'),
   preview: document.querySelector('#preview'),
   selected: document.querySelector('#selected'),
@@ -118,7 +119,9 @@ els.copySelector.addEventListener('click', async () => {
 });
 els.copyAiDrop.addEventListener('click', async () => {
   const recording = currentRecording();
-  if (recording) await navigator.clipboard.writeText(buildAiDropText(recording));
+  if (recording) {
+    await navigator.clipboard.writeText(buildAiDropText(recording, { skipNoisyActionsInAiDrop: els.hideNoisy.checked }));
+  }
 });
 els.copyEvidence.addEventListener('click', async () => {
   const recording = currentRecording();

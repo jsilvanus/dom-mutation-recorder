@@ -37,7 +37,7 @@ function baseRecording() {
         target: { selector: '#noise', tagName: 'span' },
         data: { oldText: 'x', newText: 'y' },
       },
-    ],
+    ] as Array<{ id: string; timestamp: string; type: string; target: Record<string, unknown>; data: Record<string, unknown> }>,
   };
 }
 
@@ -78,5 +78,23 @@ describe('extension shared: buildAiDropText', () => {
     expect(text).toContain('#count text changed');
     expect(text).toContain('FINAL STATE');
     expect(text).toContain('<html>final</html>');
+  });
+
+  it('skips noisy hover/scroll actions when skipNoisyActionsInAiDrop is set', () => {
+    const recording = baseRecording();
+    recording.events.unshift({
+      id: 'h1',
+      timestamp: '2025-12-31T23:59:59.900Z',
+      type: 'user.mouseover',
+      target: { selector: '.tooltip-trigger', tagName: 'div' },
+      data: {},
+    });
+
+    const withNoise = buildAiDropText(recording);
+    expect(withNoise).toContain('user.mouseover');
+
+    const withoutNoise = buildAiDropText(recording, { skipNoisyActionsInAiDrop: true });
+    expect(withoutNoise).not.toContain('user.mouseover');
+    expect(withoutNoise).toContain('Action 1: user.click');
   });
 });
