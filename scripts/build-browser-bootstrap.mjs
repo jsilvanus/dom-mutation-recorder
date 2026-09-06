@@ -32,3 +32,12 @@ const extensionCopyPath = join(root, 'apps/extension/browser-bootstrap.bundle.js
 await mkdir(dirname(extensionCopyPath), { recursive: true });
 await copyFile(outfile, extensionCopyPath);
 console.log(`Copied bundle to ${extensionCopyPath}`);
+
+// packages/playwright/src/browser-init.ts locates this bundle relative to its own file
+// (import.meta.url), so it needs a copy at the same relative offset under the compiled
+// dist/ tree (dist/packages/playwright/src/browser-init.js -> dist/packages/core/dist/...)
+// that `npm run build` (tsc -p tsconfig.build.json) produces for the published package.
+const publishedCopyPath = join(root, 'dist/packages/core/dist/browser-bootstrap.bundle.js');
+await mkdir(dirname(publishedCopyPath), { recursive: true });
+await copyFile(outfile, publishedCopyPath);
+console.log(`Copied bundle to ${publishedCopyPath}`);

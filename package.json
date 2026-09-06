@@ -5,7 +5,9 @@
   "type": "module",
   "description": "Lossless DOM recording and AI export toolkit for browser testing and extensions",
   "scripts": {
+    "build": "tsc -p tsconfig.build.json && npm run build:browser-bootstrap",
     "build:browser-bootstrap": "node scripts/build-browser-bootstrap.mjs",
+    "prepublishOnly": "npm run build",
     "pretest": "npm run build:browser-bootstrap",
     "test": "vitest run",
     "test:unit": "vitest run tests/core.test.ts",
@@ -22,6 +24,39 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/jsilvanus/dom-mutation-recorder.git"
+  },
+  "main": "./dist/packages/core/src/index.js",
+  "types": "./dist/packages/core/src/index.d.ts",
+  "bin": {
+    "domrec": "./dist/apps/cli/src/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/packages/core/src/index.d.ts",
+      "import": "./dist/packages/core/src/index.js"
+    },
+    "./core": {
+      "types": "./dist/packages/core/src/index.d.ts",
+      "import": "./dist/packages/core/src/index.js"
+    },
+    "./playwright": {
+      "types": "./dist/packages/playwright/src/index.d.ts",
+      "import": "./dist/packages/playwright/src/index.js"
+    },
+    "./exporter": {
+      "types": "./dist/packages/exporter/src/index.d.ts",
+      "import": "./dist/packages/exporter/src/index.js"
+    },
+    "./chrome": {
+      "types": "./dist/packages/chrome/src/index.d.ts",
+      "import": "./dist/packages/chrome/src/index.js"
+    },
+    "./package.json": "./package.json"
   },
   "publishConfig": {
     "access": "public"

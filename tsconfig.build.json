@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "sourceMap": false,
+    "outDir": "dist",
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": [
+    "packages/core/src/**/*.ts",
+    "packages/playwright/src/**/*.ts",
+    "packages/exporter/src/**/*.ts",
+    "packages/chrome/src/**/*.ts",
+    "apps/cli/src/**/*.ts"
+  ]
+}
