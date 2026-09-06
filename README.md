@@ -16,21 +16,33 @@ Local-first DOM recording toolkit for browser extensions and Playwright/E2E debu
 - `packages/exporter` — Markdown/JSON/HTML evidence export
 - `packages/chrome` — Chrome-side recorder bootstrap adapter
 - `apps/demo` — local demo app for recording
-- `apps/devtools` — simple recorder inspection UI (has its own separate, not-yet-unified copy
-  of the selector/mutation logic below — see Limitations)
+- `apps/devtools` — live recorder inspection UI, attaches directly to a same-origin preview
+  `<iframe>` and imports `packages/core`'s compiled output as plain ES modules
 - `apps/cli` — local CLI for inspect/export
 
-`packages/core/src/browser-bootstrap.ts` is the single implementation of the in-page recorder
-(selector generation, DOM snapshotting, mutation handling) that actually runs inside a
-recorded page. Both `packages/playwright` and the Chrome extension (`apps/extension`) inject
-it, but neither can hand it to the browser as-is: Playwright's `page.addInitScript`/
-`page.evaluate` and Chrome's `chrome.scripting.executeScript({ func })` serialize a function
-by its own source text with no bundling, so a version that imports the rest of `packages/core`
-can't be passed to them directly. `scripts/build-browser-bootstrap.mjs` (esbuild) bundles it
-into one self-contained script; `npm run build:browser-bootstrap` produces it (also run
-automatically before `npm test` and `npm run build`). If you're loading `apps/extension`
-unpacked in Chrome, run that script (or `npm run build`) at least once first — its output
-(`apps/extension/browser-bootstrap.bundle.js`) isn't checked into git.
+There is exactly one implementation of selector generation, DOM snapshotting, and mutation
+handling — `packages/core`'s `selectors.ts`/`snapshot.ts`/`mutations.ts`/`redaction.ts` — used
+by every recording surface, in whichever way each one is able to consume it:
+
+- `apps/devtools/app.js` runs in the same JS realm as its own top-level script (it just holds
+  a reference to a same-origin iframe's DOM), so it imports `packages/core`'s compiled output
+  directly as ES modules — no bundling needed, just `npm run build` having been run once.
+- `packages/playwright` and the Chrome extension (`apps/extension`) instead *inject* the
+  recorder into a page they don't otherwise share a scope with. Neither can hand it the real
+  TypeScript module graph as-is: Playwright's `page.addInitScript`/`page.evaluate` and
+  Chrome's `chrome.scripting.executeScript({ func })` serialize a function by its own source
+  text with no bundling, so a version that imports the rest of `packages/core` can't be passed
+  to them directly. `packages/core/src/browser-bootstrap.ts` is that in-page entry point
+  (reusing the same core functions); `scripts/build-browser-bootstrap.mjs` (esbuild) bundles
+  it into one self-contained script that both consumers inject instead. `npm run
+  build:browser-bootstrap` produces it (also run automatically before `npm test` and `npm run
+  build`). If you're loading `apps/extension` unpacked in Chrome, run that script (or `npm run
+  build`) at least once first — its output (`apps/extension/browser-bootstrap.bundle.js`)
+  isn't checked into git.
+
+Either way, `npm run build` needs to have been run at least once for `apps/devtools` and
+`apps/extension` to work — `apps/demo`'s server serves the compiled `dist/` output at `/dist/*`
+for the DevTools panel to import.
 
 ## Recording flow
 
@@ -164,6 +176,10 @@ npm run demo
 The demo includes buttons, forms, async updates, list mutations, a modal, loading state, and notifications.
 
 ## DevTools UI
+
+Run `npm run build` at least once first — the panel imports `packages/core`'s compiled output,
+which `apps/demo`'s server serves at `/dist/*`. Re-run it after pulling changes to
+`packages/core`.
 
 Open the DevTools panel at the demo server URL and use the real control bar to:
 

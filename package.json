@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.build.json && npm run build:browser-bootstrap",
     "build:browser-bootstrap": "node scripts/build-browser-bootstrap.mjs",
     "prepublishOnly": "npm run build",
-    "pretest": "npm run build:browser-bootstrap",
+    "pretest": "npm run build",
     "test": "vitest run",
     "test:unit": "vitest run tests/core.test.ts",
     "test:playwright": "vitest run tests/playwright.test.ts",
