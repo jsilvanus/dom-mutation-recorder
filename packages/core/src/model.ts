@@ -40,6 +40,16 @@ export type SnapshotConfig = {
 export type RecordingConfig = SnapshotConfig & {
   correlationWindowMs?: number;
   storeOldResults?: boolean;
+  // When true (the default), the recorder emits an inline `snapshot` event right after every
+  // action and again once a burst of DOM mutations goes quiet, so a recording's raw event
+  // stream can be replayed as state-over-time rather than just a mutation tally.
+  captureActionSnapshots?: boolean;
+  // How long DOM mutation activity must be quiet before an idle "settled" snapshot fires.
+  idleSnapshotDelayMs?: number;
+  // When true, buildAiDropText omits transactions anchored on noisy hover/scroll actions (see
+  // isNoisyActionEventType) so the concise AI-facing summary stays readable. Only affects that
+  // text output — the raw event stream and JSON/evidence exports are unaffected.
+  skipNoisyActionsInAiDrop?: boolean;
 };
 
 export type DomNodeSnapshot = {
@@ -72,12 +82,31 @@ export type RecordingEventBase = {
 export type UserEventType =
   | 'user.click'
   | 'user.dblclick'
+  | 'user.pointerdown'
+  | 'user.pointerup'
+  | 'user.pointerover'
+  | 'user.pointerout'
+  | 'user.pointerenter'
+  | 'user.pointerleave'
+  | 'user.mousedown'
+  | 'user.mouseup'
+  | 'user.mouseover'
+  | 'user.mouseout'
+  | 'user.contextmenu'
   | 'user.input'
   | 'user.change'
+  | 'user.select'
   | 'user.keydown'
   | 'user.keyup'
+  | 'user.keypress'
   | 'user.focus'
-  | 'user.blur';
+  | 'user.blur'
+  | 'user.submit'
+  | 'user.reset'
+  | 'user.scroll'
+  | 'user.resize'
+  | 'user.popstate'
+  | 'user.hashchange';
 
 export type DomEventType =
   | 'dom.added'
@@ -87,11 +116,45 @@ export type DomEventType =
 
 export type NavigationEventType = 'navigation';
 
+// history.pushState/replaceState don't dispatch any native event, so the recorder monkey-
+// patches them to synthesize one — the only way to see SPA route/state transitions that don't
+// happen to touch the DOM.
+export type HistoryEventType = 'history.pushState' | 'history.replaceState';
+
+// An inline DOM snapshot taken mid-recording (see RecordingConfig.captureActionSnapshots),
+// distinct from Recording.initialSnapshot/finalSnapshot which only bookend the whole session.
+export type SnapshotEventType = 'snapshot';
+
 export type RecordingEvent =
   | (RecordingEventBase & { type: UserEventType; data: Record<string, unknown> })
   | (RecordingEventBase & { type: DomEventType; data: Record<string, unknown> })
+  | (RecordingEventBase & { type: HistoryEventType; data: Record<string, unknown> })
+  | (RecordingEventBase & { type: SnapshotEventType; data: { snapshot: RecordingSnapshot; reason: 'action' | 'idle' } })
   | (RecordingEventBase & { type: NavigationEventType; data: Record<string, unknown> })
   | (RecordingEventBase & { type: string; data: Record<string, unknown> });
+
+// Anchors for ActionTransaction correlation: real user input plus the synthetic history
+// events, but not dom.* mutations, snapshots, or the devtools-only 'navigation' marker.
+export function isActionEventType(type: string): boolean {
+  return type.startsWith('user.') || type.startsWith('history.');
+}
+
+// Fires frequently during ordinary hovering/scrolling without being a deliberate, discrete
+// action. Worth keeping in the raw event stream for full reconstruction, but usually just
+// noise in a concise summary — see RecordingConfig.skipNoisyActionsInAiDrop.
+const NOISY_ACTION_EVENT_TYPES = new Set<UserEventType>([
+  'user.pointerover',
+  'user.pointerout',
+  'user.pointerenter',
+  'user.pointerleave',
+  'user.mouseover',
+  'user.mouseout',
+  'user.scroll',
+]);
+
+export function isNoisyActionEventType(type: string): boolean {
+  return NOISY_ACTION_EVENT_TYPES.has(type as UserEventType);
+}
 
 export type ActionTransaction = {
   id: string;

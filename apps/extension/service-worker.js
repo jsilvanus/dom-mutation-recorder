@@ -48,6 +48,10 @@ async function handleMessage(message, sender) {
     await stopRecording();
     return buildSnapshotState();
   }
+  if (message?.type === 'domrecorder:clear') {
+    await clearActiveRecording();
+    return buildSnapshotState();
+  }
   if (message?.type === 'domrecorder:pick') {
     const tabId = message.tabId ?? (await getActiveTabId());
     await startPicking(tabId);

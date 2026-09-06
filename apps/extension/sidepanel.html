@@ -32,6 +32,7 @@
         <button id="pick">Pick element</button>
         <button id="page">Track page</button>
         <button id="stop" disabled>Stop</button>
+        <button id="clear" disabled>Clear</button>
         <button id="copy-ai" disabled>Copy AI drop</button>
         <button id="copy-json" disabled>Copy JSON</button>
       </div>
@@ -42,6 +43,10 @@
       <div class="panel">
         <div class="row">
           <strong>AI drop preview</strong>
+          <label class="row" style="gap: .25rem">
+            <input id="hide-noisy" type="checkbox" checked />
+            Hide hover/scroll noise
+          </label>
         </div>
         <pre id="preview">Start a recording to generate clipboard output.</pre>
       </div>

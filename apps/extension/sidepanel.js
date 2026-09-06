@@ -7,11 +7,13 @@ const els = {
   pick: document.querySelector('#pick'),
   page: document.querySelector('#page'),
   stop: document.querySelector('#stop'),
+  clear: document.querySelector('#clear'),
   copyAi: document.querySelector('#copy-ai'),
   copyJson: document.querySelector('#copy-json'),
   tabInfo: document.querySelector('#tab-info'),
   scopeInfo: document.querySelector('#scope-info'),
   preview: document.querySelector('#preview'),
+  hideNoisy: document.querySelector('#hide-noisy'),
 };
 
 let currentState = null;
@@ -19,6 +21,10 @@ let activeTab = null;
 let selectedScopeSelector = null;
 let selectedScopeLabel = null;
 let picking = false;
+
+function aiDropConfig() {
+  return { skipNoisyActionsInAiDrop: els.hideNoisy.checked };
+}
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type !== 'domrecorder:pick-result') return;
@@ -40,14 +46,16 @@ els.page.addEventListener('click', () => {
   render();
 });
 els.stop.addEventListener('click', () => void stopRecording());
+els.clear.addEventListener('click', () => void clearRecording());
 els.copyAi.addEventListener('click', async () => {
   const recording = currentState?.recording;
-  if (recording) await navigator.clipboard.writeText(buildAiDropText(recording));
+  if (recording) await navigator.clipboard.writeText(buildAiDropText(recording, aiDropConfig()));
 });
 els.copyJson.addEventListener('click', async () => {
   const recording = currentState?.recording;
   if (recording) await navigator.clipboard.writeText(JSON.stringify(recording, null, 2));
 });
+els.hideNoisy.addEventListener('change', () => render());
 
 chrome.tabs.onActivated?.addListener(() => void refresh());
 chrome.tabs.onUpdated?.addListener((tabId, changeInfo) => {
@@ -86,6 +94,14 @@ async function stopRecording() {
   render();
 }
 
+async function clearRecording() {
+  currentState = await sendMessage({ type: 'domrecorder:clear' });
+  selectedScopeSelector = null;
+  selectedScopeLabel = null;
+  picking = false;
+  render();
+}
+
 async function startPicking() {
   activeTab = await getActiveTab();
   if (!activeTab?.id) return;
@@ -108,6 +124,7 @@ function render() {
   els.pick.disabled = live || picking || !activeTab?.id;
   els.page.disabled = live || !activeTab?.id;
   els.stop.disabled = !live;
+  els.clear.disabled = !recording;
   els.copyAi.disabled = !recording;
   els.copyJson.disabled = !recording;
 
@@ -119,7 +136,7 @@ function render() {
 
   if (recording) {
     const transactions = recording.transactions?.length || 0;
-    els.preview.textContent = buildAiDropText(recording);
+    els.preview.textContent = buildAiDropText(recording, aiDropConfig());
     const parts = [
       `URL: ${recording.url || '—'}`,
       `Title: ${recording.title || '—'}`,

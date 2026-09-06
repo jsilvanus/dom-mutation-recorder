@@ -10,4 +10,6 @@ export const DEFAULT_RECORDING_CONFIG = {
   redactPasswords: true,
   correlationWindowMs: 750,
   scopeSelector: null,
+  captureActionSnapshots: true,
+  idleSnapshotDelayMs: 600,
 };

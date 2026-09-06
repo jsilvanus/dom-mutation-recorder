@@ -1,4 +1,5 @@
 import type { ActionTransaction, Recording, RecordingConfig } from './model.js';
+import { isActionEventType } from './model.js';
 import { buildSemanticDiff } from './semantic-diff.js';
 import { findActionIndex } from './correlation-helpers.js';
 
@@ -7,7 +8,7 @@ export function correlateRecording(
   config: RecordingConfig = {},
 ): ActionTransaction[] {
   const windowMs = config.correlationWindowMs ?? 750;
-  const userEvents = recording.events.filter((event) => event.type.startsWith('user.'));
+  const userEvents = recording.events.filter((event) => isActionEventType(event.type));
   const mutations = recording.events.filter((event) => event.type.startsWith('dom.'));
   const transactions: ActionTransaction[] = userEvents.map((action) => ({
     id: action.id,
