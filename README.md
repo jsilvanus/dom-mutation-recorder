@@ -85,6 +85,7 @@ Open the DevTools panel at the demo server URL and use the real control bar to:
 
 - load a target page
 - start/stop recording
+- navigate within the target while recording
 - inspect live events
 - copy an AI chat drop summary
 - export recording/evidence

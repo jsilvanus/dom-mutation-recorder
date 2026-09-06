@@ -50,11 +50,18 @@ els.loadTarget.addEventListener('click', () => {
 els.preview.addEventListener('load', () => {
   state.iframeReady = true;
   const sameOrigin = canAccessPreview();
-  setStatus(sameOrigin ? 'Target ready' : 'Target loaded (cross-origin, live recording disabled)', 'idle');
-  updateButtons();
   if (state.session) {
-    stopRecording(true);
+    if (sameOrigin) {
+      handlePreviewNavigation();
+      setStatus('Recording target navigation…', 'recording');
+    } else {
+      stopRecording(false);
+      setStatus('Cross-origin navigation ended recording', 'error');
+    }
+  } else {
+    setStatus(sameOrigin ? 'Target ready' : 'Target loaded (cross-origin, live recording disabled)', 'idle');
   }
+  updateButtons();
 });
 
 els.startRecording.addEventListener('click', async () => {
@@ -187,7 +194,40 @@ function attachRecordingSession(session) {
     characterDataOldValue: true,
   });
   session.observers.push(observer);
-  session.window.addEventListener('beforeunload', () => stopRecording(true), { once: true });
+}
+
+function handlePreviewNavigation() {
+  if (!state.session) return;
+  const session = state.session;
+  const previousUrl = session.document.URL;
+  cleanupSession(session);
+  session.window = els.preview.contentWindow;
+  session.document = session.window.document;
+  lastValues = new WeakMap();
+  session.events.push({
+    id: crypto.randomUUID(),
+    timestamp: new Date().toISOString(),
+    type: 'navigation',
+    target: {
+      selector: 'document',
+      role: null,
+      name: session.document.title || null,
+      tagName: '#document',
+      id: null,
+      classes: [],
+      path: 'document',
+      text: session.document.title || null,
+      attributes: {},
+    },
+    data: {
+      from: previousUrl,
+      to: session.document.URL,
+      title: session.document.title,
+    },
+  });
+  attachRecordingSession(session);
+  renderEvents(currentEvents());
+  renderSummary(null);
 }
 
 function finalizeSession(session) {
@@ -248,7 +288,7 @@ function buildUserEventData(event, target, win) {
     data.code = event.code;
   }
   if (win && (target instanceof win.HTMLInputElement || target instanceof win.HTMLTextAreaElement)) {
-    if (type === 'user.input' || type === 'user.change') {
+    if (event.type === 'input' || event.type === 'change') {
       data.before = lastValues.get(target) ?? target.value;
       data.after = isRedactedField(target) ? '[redacted]' : target.value;
       lastValues.set(target, data.after);
@@ -583,8 +623,15 @@ function selectEvent(event, item) {
 function renderSummary(recording) {
   els.meta.innerHTML = '';
   if (!recording) {
-    for (const [label, value] of [['Recording', 'No recording loaded'], ['URL', '—']]) {
-      addMeta(label, value);
+    if (state.session) {
+      addMeta('Recording', 'LIVE');
+      addMeta('URL', state.session.document.URL);
+      addMeta('Title', state.session.document.title || '—');
+      addMeta('Events', String(state.session.events.length));
+      addMeta('Navigation events', String(state.session.events.filter((event) => event.type === 'navigation').length));
+    } else {
+      addMeta('Recording', 'No recording loaded');
+      addMeta('URL', '—');
     }
     return;
   }
