@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DOM Recorder DevTools</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 0; display: grid; grid-template-columns: 320px 1fr; min-height: 100vh; }
+      aside, main { padding: 1rem; }
+      pre { white-space: pre-wrap; }
+      button { margin-right: .5rem; }
+      .selected { background: #e6f0ff; }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <h1>DOM Recorder</h1>
+      <input type="file" id="file" accept="application/json" />
+      <div>
+        <button id="copy-selector">Copy selector</button>
+        <button id="copy-evidence">Copy evidence</button>
+      </div>
+      <ul id="events"></ul>
+    </aside>
+    <main>
+      <section>
+        <h2>Recording</h2>
+        <div id="meta"></div>
+      </section>
+      <section>
+        <h2>Selected event</h2>
+        <pre id="selected"></pre>
+      </section>
+    </main>
+    <script type="module">
+      const state = { recording: null, selected: null };
+      const file = document.querySelector('#file');
+      const events = document.querySelector('#events');
+      const meta = document.querySelector('#meta');
+      const selected = document.querySelector('#selected');
+      file.addEventListener('change', async () => {
+        const content = await file.files[0].text();
+        state.recording = JSON.parse(content);
+        render();
+      });
+      document.querySelector('#copy-selector').addEventListener('click', async () => {
+        if (state.selected?.target?.selector) await navigator.clipboard.writeText(state.selected.target.selector);
+      });
+      document.querySelector('#copy-evidence').addEventListener('click', async () => {
+        if (state.recording) await navigator.clipboard.writeText(JSON.stringify(state.recording, null, 2));
+      });
+      function render() {
+        meta.textContent = `${state.recording.title} — ${state.recording.url}`;
+        events.innerHTML = '';
+        for (const event of state.recording.events || []) {
+          const item = document.createElement('li');
+          item.textContent = `${event.type} ${event.target?.selector || ''}`;
+          item.addEventListener('click', () => select(event, item));
+          events.append(item);
+        }
+      }
+      function select(event, item) {
+        state.selected = event;
+        [...events.children].forEach((child) => child.classList.toggle('selected', child === item));
+        selected.textContent = JSON.stringify(event, null, 2);
+      }
+    </script>
+  </body>
+</html>

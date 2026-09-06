@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DOM Recorder Demo</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 2rem; }
+      .toast { position: fixed; right: 1rem; bottom: 1rem; background: #111; color: #fff; padding: .75rem 1rem; border-radius: .5rem; }
+      .loading { opacity: .7; }
+      dialog { padding: 1rem 1.25rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>DOM Recorder Demo</h1>
+      <section>
+        <button id="add-item" data-testid="add-item">Add item</button>
+        <button id="open-modal">Open modal</button>
+        <button id="toggle-loading">Toggle loading</button>
+      </section>
+      <section>
+        <label>
+          Item name
+          <input id="item-name" name="itemName" />
+        </label>
+        <label>
+          Secret
+          <input id="secret" type="password" />
+        </label>
+      </section>
+      <section aria-label="Cart">
+        <h2>Cart <span id="cart-count">0</span></h2>
+        <ul id="items" class="items"></ul>
+      </section>
+      <section>
+        <div id="status" aria-live="polite"></div>
+      </section>
+      <dialog id="modal">
+        <p>Modal content</p>
+        <button id="close-modal">Close</button>
+      </dialog>
+    </main>
+    <div id="toast-root"></div>
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>
