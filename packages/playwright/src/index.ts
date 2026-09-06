@@ -104,6 +104,7 @@ export class DomRecorder {
       startedAt: this.state.startedAt,
       url: finalSnapshot.url,
       title: finalSnapshot.title,
+      scopeSelector: finalSnapshot.scopeSelector ?? initialSnapshot.scopeSelector ?? this.config.scopeSelector ?? null,
       viewport: this.page.viewportSize() || undefined,
       userAgent: await this.page.evaluate(() => navigator.userAgent).catch(() => ''),
       initialSnapshot,
@@ -134,16 +135,22 @@ async function hydrateSnapshot(
 async function captureSnapshotFallback(page: Page, config: RecordingConfig): Promise<RecordingSnapshot> {
   return page.evaluate((options) => {
     const redactUrls = options.redactUrls;
+    const scopeSelector = options.scopeSelector || null;
+    const scope = scopeSelector
+      ? document.querySelector(scopeSelector)
+      : null;
     const url = new URL(location.href);
     if (redactUrls) {
       url.search = '';
       url.hash = '';
     }
+    const root = scope || document.documentElement;
     return {
       url: url.toString(),
       title: document.title,
-      html: `<!doctype html>\n${document.documentElement.outerHTML}`,
-      document: { kind: 'document', children: [], path: 'html' },
+      html: `<!doctype html>\n${root.outerHTML}`,
+      scopeSelector: scope ? scopeSelector : null,
+      document: { kind: scope ? 'element' : 'document', children: [], path: scope ? 'document' : 'html', tagName: scope ? root.tagName.toLowerCase() : undefined },
     };
   }, config);
 }

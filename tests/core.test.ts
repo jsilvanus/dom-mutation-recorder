@@ -28,6 +28,49 @@ describe('core recording', () => {
     expect(snapshot.html).toContain('Save');
   });
 
+  it('captures and filters a scoped selection', () => {
+    const dom = new JSDOM(`
+      <!doctype html>
+      <html>
+        <body>
+          <div id="root">
+            <button id="inside">Inside</button>
+          </div>
+          <button id="outside">Outside</button>
+        </body>
+      </html>
+    `);
+    const { document } = dom.window;
+    const snapshot = captureRecordingSnapshot(document, { scopeSelector: '#root' });
+    expect(snapshot.scopeSelector).toBe('#root');
+    expect(snapshot.document.kind).toBe('element');
+    expect(snapshot.html).toContain('Inside');
+    expect(snapshot.html).not.toContain('Outside');
+
+    const inside = document.querySelector('#inside')!;
+    const outside = document.querySelector('#outside')!;
+    const scoped = describeMutationRecord(
+      {
+        type: 'attributes',
+        target: inside,
+        attributeName: 'data-state',
+        oldValue: null,
+      } as unknown as MutationRecord,
+      { scopeSelector: '#root' },
+    );
+    const skipped = describeMutationRecord(
+      {
+        type: 'attributes',
+        target: outside,
+        attributeName: 'data-state',
+        oldValue: null,
+      } as unknown as MutationRecord,
+      { scopeSelector: '#root' },
+    );
+    expect(scoped).toHaveLength(1);
+    expect(skipped).toHaveLength(0);
+  });
+
   it('generates robust selector candidates', () => {
     const dom = new JSDOM(`<button id="save" data-testid="save-button" aria-label="Save changes">Save</button>`);
     const element = dom.window.document.querySelector('button')!;

@@ -1,5 +1,5 @@
 import type { DomEventType, RecordingConfig, RecordingEvent, RecordingTarget } from './model.js';
-import { describeElement } from './selectors.js';
+import { describeElement, isWithinScope, resolveSelector } from './selectors.js';
 import { serializeNode } from './snapshot.js';
 
 export type MutationEventData =
@@ -27,14 +27,18 @@ export type MutationEventData =
       newText: string;
     };
 
-export function describeMutationRecord(
-  record: MutationRecord,
-  config: RecordingConfig = {},
-): RecordingEvent[] {
+export function describeMutationRecord(record: MutationRecord, config: RecordingConfig = {}): RecordingEvent[] {
+  const document = (record.target as Node & { ownerDocument?: Document | null }).ownerDocument || (record.target as Document);
+  const scope = resolveSelector(document, config.scopeSelector);
+  if (scope && !mutationTouchesScope(record, scope)) {
+    return [];
+  }
+
   const timestamp = new Date().toISOString();
   const events: RecordingEvent[] = [];
+
   if (record.type === 'childList') {
-    const parent = isElementNode(record.target) ? describeElement(record.target as Element) : undefined;
+    const parent = isElementLike(record.target) ? describeElement(record.target) : undefined;
     for (const addedNode of Array.from(record.addedNodes)) {
       const position = Array.from(record.target.childNodes).indexOf(addedNode as ChildNode);
       events.push({
@@ -66,12 +70,12 @@ export function describeMutationRecord(
     }
   }
 
-  if (record.type === 'attributes' && isElementNode(record.target)) {
+  if (record.type === 'attributes' && isElementLike(record.target)) {
     events.push({
       id: crypto.randomUUID(),
       timestamp,
       type: 'dom.attributes',
-      target: describeElement(record.target as Element),
+      target: describeElement(record.target),
       data: {
         attribute: record.attributeName || '',
         oldValue: record.oldValue,
@@ -80,15 +84,15 @@ export function describeMutationRecord(
     });
   }
 
-  if (record.type === 'characterData' && isTextNode(record.target)) {
+  if (record.type === 'characterData' && isCharacterDataLike(record.target)) {
     events.push({
       id: crypto.randomUUID(),
       timestamp,
       type: 'dom.text',
-      target: (record.target as CharacterData).parentElement ? describeElement((record.target as CharacterData).parentElement!) : undefined,
+      target: isElementLike(record.target.parentElement) ? describeElement(record.target.parentElement) : undefined,
       data: {
         oldText: record.oldValue || '',
-        newText: (record.target as CharacterData).data,
+        newText: record.target.data,
       },
     });
   }
@@ -100,10 +104,30 @@ export function isMutationEventType(type: string): type is DomEventType {
   return type === 'dom.added' || type === 'dom.removed' || type === 'dom.attributes' || type === 'dom.text';
 }
 
-function isElementNode(node: Node): node is Element {
-  return node.nodeType === Node.ELEMENT_NODE;
+function mutationTouchesScope(record: MutationRecord, scope: Element): boolean {
+  if (record.type === 'attributes' || record.type === 'characterData') {
+    return isNodeLike(record.target) && isWithinScope(record.target, scope);
+  }
+  if (record.type === 'childList') {
+    if (isNodeLike(record.target) && isWithinScope(record.target, scope)) return true;
+    for (const node of Array.from(record.addedNodes)) {
+      if (node === scope || (isElementLike(node) && node.contains(scope))) return true;
+    }
+    for (const node of Array.from(record.removedNodes)) {
+      if (node === scope || (isElementLike(node) && node.contains(scope))) return true;
+    }
+  }
+  return false;
 }
 
-function isTextNode(node: Node): node is CharacterData {
-  return node.nodeType === Node.TEXT_NODE;
+function isNodeLike(value: unknown): value is Node {
+  return Boolean(value && typeof value === 'object' && 'nodeType' in value);
+}
+
+function isElementLike(value: unknown): value is Element {
+  return Boolean(value && typeof value === 'object' && 'nodeType' in value && (value as Element).nodeType === 1);
+}
+
+function isCharacterDataLike(value: unknown): value is CharacterData {
+  return Boolean(value && typeof value === 'object' && 'nodeType' in value && (value as CharacterData).nodeType === 3);
 }

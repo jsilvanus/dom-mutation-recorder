@@ -2,11 +2,34 @@ export const DEFAULT_RECORDING_CONFIG = {
   redactInputValues: true,
   redactPasswords: true,
   correlationWindowMs: 750,
+  scopeSelector: null,
 };
+
+export function describeSelectableElement(element) {
+  const selectors = selectorsFor(element);
+  return {
+    selector: selectors[0] || null,
+    selectors,
+    role: roleFor(element),
+    name: nameFor(element),
+    tagName: element.tagName.toLowerCase(),
+    id: element.id || null,
+    classes: Array.from(element.classList),
+    path: pathFor(element),
+    text: truncateText(element.textContent || ''),
+    attributes: Object.fromEntries(Array.from(element.attributes).map((attribute) => [attribute.name, truncateText(attribute.value)])),
+  };
+}
+
+export function pickScopeSelector(element) {
+  const candidates = selectorsFor(element);
+  return candidates.find((candidate) => !candidate.startsWith('getByRole(')) || candidates[0] || null;
+}
 
 export function browserRecorderBootstrap(options) {
   const config = options.config || {};
   const tabId = options.tabId;
+  const scopeSelector = config.scopeSelector || null;
   const send = (payload) => {
     chrome.runtime.sendMessage({
       type: 'domrecorder:event',
@@ -88,6 +111,19 @@ export function browserRecorderBootstrap(options) {
       attributes: Object.fromEntries(Array.from(element.attributes).map((attribute) => [attribute.name, truncate(attribute.value)])),
     };
   };
+  function resolveScopeElement(selector) {
+    if (!selector) return null;
+    try {
+      if (selector.startsWith('/') || selector.startsWith('(')) {
+        const result = document.evaluate(selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+        return result.singleNodeValue instanceof Element ? result.singleNodeValue : null;
+      }
+      return document.querySelector(selector);
+    } catch {
+      return null;
+    }
+  }
+  const scopeElement = resolveScopeElement(scopeSelector);
   const shouldRedactFieldValue = (tag, type) => {
     if (tag !== 'input' && tag !== 'textarea') return false;
     if (type === 'password') return config.redactPasswords !== false || config.redactInputValues !== false;
@@ -98,6 +134,73 @@ export function browserRecorderBootstrap(options) {
     if (node.nodeType === Node.TEXT_NODE) {
       const text = truncate(clean(node.textContent || ''));
       return text ? { kind: 'text', text } : null;
+    }
+
+    function truncateText(value, max = 2000) {
+      const normalized = value.replace(/\s+/g, ' ').trim();
+      return normalized.length > max ? `${normalized.slice(0, max)}…` : normalized;
+    }
+
+    function cssEscape(value) {
+      return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/'/g, "\\'");
+    }
+
+    function attrEscape(value) {
+      return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    }
+
+    function roleFor(element) {
+      const explicit = element.getAttribute('role');
+      if (explicit) return explicit;
+      const tag = element.tagName.toLowerCase();
+      if (tag === 'button') return 'button';
+      if (tag === 'a' && element.hasAttribute('href')) return 'link';
+      if (tag === 'textarea') return 'textbox';
+      if (tag === 'input') {
+        const type = (element.getAttribute('type') || 'text').toLowerCase();
+        if (type === 'checkbox') return 'checkbox';
+        if (type === 'radio') return 'radio';
+        if (type === 'submit' || type === 'button' || type === 'reset') return 'button';
+        return 'textbox';
+      }
+      if (tag === 'select') return 'combobox';
+      return null;
+    }
+
+    function nameFor(element) {
+      const ariaLabel = element.getAttribute('aria-label');
+      if (ariaLabel) return ariaLabel.trim();
+      const title = element.getAttribute('title');
+      if (title) return title.trim();
+      const text = element.textContent?.replace(/\s+/g, ' ').trim();
+      return text || null;
+    }
+
+    function pathFor(element) {
+      const parts = [];
+      let current = element;
+      while (current) {
+        const tag = current.tagName.toLowerCase();
+        const siblings = Array.from(current.parentElement?.children || []).filter((candidate) => candidate.tagName === current?.tagName);
+        const index = siblings.length > 1 ? siblings.indexOf(current) + 1 : 0;
+        parts.unshift(index > 0 ? `${tag}:nth-of-type(${index})` : tag);
+        current = current.parentElement;
+      }
+      return parts.join(' > ');
+    }
+
+    function selectorsFor(element) {
+      const selectors = [];
+      if (element.id) selectors.push(`#${cssEscape(element.id)}`);
+      const testId = element.getAttribute('data-testid') || element.getAttribute('data-test') || element.getAttribute('data-qa');
+      if (testId) selectors.push(`[data-testid="${attrEscape(testId)}"]`);
+      const role = roleFor(element);
+      const name = nameFor(element);
+      if (role && name) selectors.push(`getByRole("${role}", { name: ${JSON.stringify(name)} })`);
+      const className = Array.from(element.classList).filter(Boolean).slice(0, 2).join('.');
+      if (className) selectors.push(`${element.tagName.toLowerCase()}.${className}`);
+      selectors.push(pathFor(element));
+      return selectors;
     }
     if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.DOCUMENT_NODE) return null;
     const element = node.nodeType === Node.ELEMENT_NODE ? node : null;
@@ -130,7 +233,7 @@ export function browserRecorderBootstrap(options) {
     };
   };
   const serializeHtml = (doc) => {
-    const clone = doc.documentElement.cloneNode(true);
+    const clone = (scopeElement ?? doc.documentElement).cloneNode(true);
     for (const script of Array.from(clone.querySelectorAll('script, noscript'))) {
       script.textContent = '[omitted]';
     }
@@ -145,7 +248,8 @@ export function browserRecorderBootstrap(options) {
     url: config.redactUrls ? redactUrl(document.URL) : document.URL,
     title: document.title,
     html: serializeHtml(document),
-    document: snapshotNode(document) || { kind: 'document', children: [], path: 'html' },
+    scopeSelector: scopeElement ? scopeSelector : null,
+    document: snapshotNode(scopeElement ?? document) || { kind: 'document', children: [], path: 'html' },
   });
   const redactUrl = (value) => {
     try {
@@ -163,6 +267,7 @@ export function browserRecorderBootstrap(options) {
   const emitUser = (type, event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+    if (scopeElement && !scopeElement.contains(target) && target !== scopeElement) return;
     const element = describeElement(target);
     const data = {};
     if ('clientX' in event && typeof event.clientX === 'number') {
@@ -196,6 +301,7 @@ export function browserRecorderBootstrap(options) {
 
   const observer = new MutationObserver((records) => {
     for (const record of records) {
+      if (scopeElement && !mutationTouchesScope(record, scopeElement)) continue;
       if (record.type === 'childList') {
         const parent = record.target instanceof Element ? describeElement(record.target) : undefined;
         for (const node of Array.from(record.addedNodes)) {
@@ -275,6 +381,22 @@ export function browserRecorderBootstrap(options) {
     }
     window.__domRecorderInstalled = false;
   };
+
+  function mutationTouchesScope(record, scope) {
+    if (record.type === 'attributes' || record.type === 'characterData') {
+      return record.target instanceof Node && (record.target === scope || scope.contains(record.target));
+    }
+    if (record.type === 'childList') {
+      if (record.target instanceof Node && (record.target === scope || scope.contains(record.target))) return true;
+      for (const node of Array.from(record.addedNodes)) {
+        if (node === scope || (node instanceof Element && node.contains(scope))) return true;
+      }
+      for (const node of Array.from(record.removedNodes)) {
+        if (node === scope || (node instanceof Element && node.contains(scope))) return true;
+      }
+    }
+    return false;
+  }
 }
 
 export function correlateRecording(recording, windowMs = DEFAULT_RECORDING_CONFIG.correlationWindowMs) {
@@ -318,6 +440,7 @@ export function buildAiDropText(recording) {
   lines.push('PAGE');
   lines.push(`URL: ${recording.url}`);
   lines.push(`Title: ${recording.title}`);
+  lines.push(`Scope: ${recording.scopeSelector || 'entire page'}`);
   lines.push('');
   lines.push('INITIAL STATE');
   lines.push(recording.initialSnapshot?.html || '—');

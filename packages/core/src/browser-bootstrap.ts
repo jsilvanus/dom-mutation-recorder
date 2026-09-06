@@ -7,6 +7,19 @@ export type BrowserRecorderInit = {
 
 export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
   const config = options.config || {};
+  const scopeSelector = config.scopeSelector || null;
+  const scopeElement = (() => {
+    if (!scopeSelector) return null;
+    try {
+      if (scopeSelector.startsWith('/') || scopeSelector.startsWith('(')) {
+        const result = document.evaluate(scopeSelector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+        return result.singleNodeValue instanceof Element ? result.singleNodeValue : null;
+      }
+      return document.querySelector(scopeSelector);
+    } catch {
+      return null;
+    }
+  })();
   const shouldRedactFieldValue = (tagName: string, type: string): boolean => {
     if (tagName === 'textarea') return config.redactInputValues !== false;
     if (tagName !== 'input') return false;
@@ -131,7 +144,7 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
     };
   };
   const serializeHtml = (doc: Document) => {
-    const clone = doc.documentElement.cloneNode(true) as HTMLElement;
+    const clone = (scopeElement ?? doc.documentElement).cloneNode(true) as Element;
     for (const script of Array.from(clone.querySelectorAll('script, noscript'))) {
       script.textContent = '[omitted]';
     }
@@ -158,7 +171,8 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
     url: config.redactUrls ? redactUrl(document.URL) : document.URL,
     title: document.title,
     html: serializeHtml(document),
-    document: snapshotNode(document) || { kind: 'document', children: [], path: 'html' },
+    scopeSelector: scopeElement ? scopeSelector : null,
+    document: snapshotNode(scopeElement ?? document) || { kind: 'document', children: [], path: 'html' },
   });
 
   const lastValues = new WeakMap<Element, string>();
@@ -166,6 +180,7 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
   const emitUser = (type: string, event: Event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
+    if (scopeElement && !scopeElement.contains(target) && target !== scopeElement) return;
     const element = describeElement(target);
     const data: Record<string, unknown> = {};
     if ('clientX' in event && typeof event.clientX === 'number') {
@@ -195,6 +210,7 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
 
   const observer = new MutationObserver((records) => {
     for (const record of records) {
+      if (scopeElement && !mutationTouchesScope(record, scopeElement)) continue;
       if (record.type === 'childList') {
         const parent = record.target instanceof Element ? describeElement(record.target) : undefined;
         for (const node of Array.from(record.addedNodes)) {
@@ -275,5 +291,21 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
       document.removeEventListener(type, handler, true);
     }
   };
+
+  function mutationTouchesScope(record: MutationRecord, scope: Element): boolean {
+    if (record.type === 'attributes' || record.type === 'characterData') {
+      return record.target instanceof Node && (record.target === scope || scope.contains(record.target));
+    }
+    if (record.type === 'childList') {
+      if (record.target instanceof Node && (record.target === scope || scope.contains(record.target))) return true;
+      for (const node of Array.from(record.addedNodes)) {
+        if (node === scope || (node instanceof Element && node.contains(scope))) return true;
+      }
+      for (const node of Array.from(record.removedNodes)) {
+        if (node === scope || (node instanceof Element && node.contains(scope))) return true;
+      }
+    }
+    return false;
+  }
 
 }

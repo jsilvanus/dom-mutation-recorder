@@ -77,6 +77,23 @@ export function buildXPath(element: Element): string {
   return parts.join('');
 }
 
+export function resolveSelector(document: Document, selector?: string | null): Element | null {
+  if (!selector) return null;
+  try {
+    if (selector.startsWith('/') || selector.startsWith('(')) {
+      const result = document.evaluate(selector, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+      return result.singleNodeValue instanceof Element ? result.singleNodeValue : null;
+    }
+    return document.querySelector(selector);
+  } catch {
+    return null;
+  }
+}
+
+export function isWithinScope(node: Node, scope: Element): boolean {
+  return node === scope || scope.contains(node);
+}
+
 export function generateSelectors(element: Element): SelectorCandidate[] {
   const candidates: SelectorCandidate[] = [];
   const tag = element.tagName.toLowerCase();

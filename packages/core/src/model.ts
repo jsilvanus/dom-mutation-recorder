@@ -34,6 +34,7 @@ export type SnapshotConfig = {
   maxTextLength?: number;
   maxSubtreeSize?: number;
   redactUrls?: boolean;
+  scopeSelector?: string | null;
 };
 
 export type RecordingConfig = SnapshotConfig & {
@@ -57,6 +58,7 @@ export type RecordingSnapshot = {
   title: string;
   html: string;
   document: DomNodeSnapshot;
+  scopeSelector?: string | null;
 };
 
 export type RecordingEventBase = {
@@ -114,6 +116,7 @@ export type Recording = {
   endedAt: string | null;
   url: string;
   title: string;
+  scopeSelector?: string | null;
   viewport?: { width: number; height: number };
   userAgent: string;
   initialSnapshot: RecordingSnapshot;

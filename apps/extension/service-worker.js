@@ -18,7 +18,7 @@ chrome.runtime.onStartup?.addListener(() => {
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === 'complete' && state.activeTabId === tabId && state.recording) {
-    void injectRecorder(tabId);
+    void injectRecorder(tabId, { scopeSelector: state.recording.scopeSelector });
   }
 });
 
@@ -41,7 +41,7 @@ async function handleMessage(message, sender) {
   }
   if (message?.type === 'domrecorder:start') {
     const tabId = message.tabId ?? (await getActiveTabId());
-    await startRecording(tabId);
+    await startRecording(tabId, message.config || {});
     return buildSnapshotState();
   }
   if (message?.type === 'domrecorder:stop') {
@@ -56,7 +56,7 @@ async function handleMessage(message, sender) {
   return { ok: false };
 }
 
-async function startRecording(tabId) {
+async function startRecording(tabId, config = {}) {
   if (tabId == null) throw new Error('No active tab');
   await clearActiveRecording();
   state.activeTabId = tabId;
@@ -71,10 +71,11 @@ async function startRecording(tabId) {
     userAgent: '',
     initialSnapshot: null,
     finalSnapshot: null,
+    scopeSelector: config.scopeSelector || null,
     events: [],
   };
   await persist();
-  await injectRecorder(tabId);
+  await injectRecorder(tabId, config);
 }
 
 async function stopRecording() {
@@ -110,11 +111,11 @@ function appendEvent(payload) {
   }
 }
 
-async function injectRecorder(tabId) {
+async function injectRecorder(tabId, config = {}) {
   await chrome.scripting.executeScript({
     target: { tabId },
     func: browserRecorderBootstrap,
-    args: [{ tabId, config: DEFAULT_RECORDING_CONFIG }],
+    args: [{ tabId, config: { ...DEFAULT_RECORDING_CONFIG, ...config } }],
   });
 }
 

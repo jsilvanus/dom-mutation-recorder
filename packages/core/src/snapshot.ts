@@ -1,17 +1,19 @@
 import type { DomNodeSnapshot, RecordingConfig, RecordingSnapshot } from './model.js';
 import { shouldRedactFieldValue } from './redaction.js';
-import { buildDomPath, generateSelectors } from './selectors.js';
+import { buildDomPath, generateSelectors, resolveSelector } from './selectors.js';
 
 export function captureRecordingSnapshot(
   document: Document,
   config: RecordingConfig = {},
 ): RecordingSnapshot {
-  const html = serializeDocumentHtml(document, config);
+  const scopeElement = resolveSelector(document, config.scopeSelector);
+  const html = serializeDocumentHtml(document, config, scopeElement);
   return {
     url: config.redactUrls ? redactUrl(document.URL) : document.URL,
     title: document.title,
     html,
-    document: serializeNode(document, config, 0) ?? {
+    scopeSelector: scopeElement ? config.scopeSelector ?? null : null,
+    document: serializeNode(scopeElement ?? document, config, 0) ?? {
       kind: 'document',
       children: [],
       path: 'html',
@@ -71,8 +73,8 @@ export function serializeNode(
   };
 }
 
-export function serializeDocumentHtml(document: Document, config: RecordingConfig = {}): string {
-  const clone = document.documentElement.cloneNode(true) as HTMLElement;
+export function serializeDocumentHtml(document: Document, config: RecordingConfig = {}, scopeElement?: Element | null): string {
+  const clone = (scopeElement ?? document.documentElement).cloneNode(true) as HTMLElement;
   for (const script of Array.from(clone.querySelectorAll('script, noscript'))) {
     script.textContent = '[omitted]';
   }
@@ -96,8 +98,12 @@ function serializeAttributes(element: Element, config: RecordingConfig): Record<
     }
     attributes[attribute.name] = truncate(attribute.value, config.maxTextLength ?? 2_000);
   }
-  if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-    const value = shouldRedactValue(element, config) ? '[redacted]' : truncate(element.value, config.maxTextLength ?? 2_000);
+  const tag = element.tagName.toLowerCase();
+  if (tag === 'input' || tag === 'textarea') {
+    const valueSource = tag === 'input'
+      ? (element as HTMLInputElement).value
+      : (element as HTMLTextAreaElement).value;
+    const value = shouldRedactValue(element, config) ? '[redacted]' : truncate(valueSource, config.maxTextLength ?? 2_000);
     attributes.value = value;
   }
   return attributes;

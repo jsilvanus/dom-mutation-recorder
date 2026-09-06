@@ -47,6 +47,7 @@ export function renderSummary(recording: Recording, transactions: ActionTransact
   lines.push('# DOM Recording');
   lines.push(`URL: ${recording.url}`);
   lines.push(`Title: ${recording.title}`);
+  lines.push(`Scope: ${recording.scopeSelector || 'entire page'}`);
   lines.push('');
   lines.push('## Actions');
   if (!transactions.length) {
