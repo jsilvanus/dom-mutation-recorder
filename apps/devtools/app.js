@@ -1,3 +1,18 @@
+// apps/devtools attaches directly to a same-origin <iframe>'s DOM from its own module scope
+// (no chrome.scripting.executeScript / page.addInitScript involved), so — unlike
+// browser-bootstrap.ts's two injection paths — it can just import packages/core's real
+// selector/snapshot/mutation/redaction functions as normal ES modules. They're written to be
+// realm-safe (nodeType checks rather than `instanceof`), which is exactly what's needed here
+// since the iframe's DOM nodes belong to a different realm than this script's own globals.
+import {
+  buildAiDropText,
+  captureRecordingSnapshot,
+  correlateRecording as correlateRecordingCore,
+  describeElement as describeElementCore,
+  describeMutationRecord,
+  shouldRedactElementValue,
+} from '../dist/packages/core/src/index.js';
+
 const state = {
   loadedRecording: null,
   recording: null,
@@ -144,7 +159,7 @@ function startRecording() {
     id: crypto.randomUUID(),
     startedAt: new Date().toISOString(),
     events: [],
-    initialSnapshot: captureSnapshot(doc),
+    initialSnapshot: captureRecordingSnapshot(doc, recordingOptions),
     finalSnapshot: null,
     observers: [],
     listeners: [],
@@ -177,7 +192,7 @@ function attachRecordingSession(session) {
   const handleUserEvent = (type) => (event) => {
     const target = event.target instanceof win.Element ? event.target : null;
     if (!target) return;
-    session.events.push(buildUserEvent(type, event, target, doc, win));
+    session.events.push(buildUserEvent(type, event, target, win));
     renderEvents(currentEvents());
   };
 
@@ -189,7 +204,7 @@ function attachRecordingSession(session) {
 
   const observer = new MutationObserver((records) => {
     for (const record of records) {
-      session.events.push(...buildMutationEvents(record, doc, win));
+      session.events.push(...describeMutationRecord(record, recordingOptions));
     }
     renderEvents(currentEvents());
   });
@@ -240,7 +255,7 @@ function handlePreviewNavigation() {
 
 function finalizeSession(session) {
   cleanupSession(session);
-  const finalSnapshot = captureSnapshot(session.document);
+  const finalSnapshot = captureRecordingSnapshot(session.document, recordingOptions);
   const recording = {
     id: session.id,
     version: '1.0.0',
@@ -257,7 +272,7 @@ function finalizeSession(session) {
     finalSnapshot,
     events: session.events,
   };
-  recording.transactions = correlateRecording(recording);
+  recording.transactions = correlateRecordingCore(recording, recordingOptions);
   return recording;
 }
 
@@ -276,12 +291,12 @@ function currentEvents() {
   return state.session ? state.session.events : currentRecording()?.events || [];
 }
 
-function buildUserEvent(type, event, target, doc, win) {
+function buildUserEvent(type, event, target, win) {
   return {
     id: crypto.randomUUID(),
     timestamp: new Date().toISOString(),
     type,
-    target: describeElement(target, doc),
+    target: describeElementCore(target, recordingOptions),
     data: buildUserEventData(event, target, win),
   };
 }
@@ -292,287 +307,23 @@ function buildUserEventData(event, target, win) {
     data.coordinates = { x: event.clientX, y: event.clientY || 0 };
   }
   if (win && event instanceof win.KeyboardEvent) {
-    data.key = isRedactedField(target) && event.key.length === 1 ? '[redacted]' : event.key;
+    data.key = shouldRedactElementValue(target, recordingOptions) && event.key.length === 1 ? '[redacted]' : event.key;
     data.code = event.code;
   }
   if (win && (target instanceof win.HTMLInputElement || target instanceof win.HTMLTextAreaElement)) {
+    // Update lastValues on every event that touches this field (not just input/change) so
+    // the very first keystroke has a real "before" value captured from an earlier
+    // focus/keydown, instead of falling back to the just-changed current value.
+    const current = shouldRedactElementValue(target, recordingOptions) ? '[redacted]' : target.value;
+    const before = lastValues.get(target) ?? current;
     if (event.type === 'input' || event.type === 'change') {
-      data.before = lastValues.get(target) ?? (isRedactedField(target) ? '[redacted]' : target.value);
-      data.after = isRedactedField(target) ? '[redacted]' : target.value;
-      lastValues.set(target, data.after);
+      data.before = before;
+      data.after = current;
     }
+    lastValues.set(target, current);
   }
   return data;
 }
-
-function buildMutationEvents(record, doc, win) {
-  const timestamp = new Date().toISOString();
-  const parent = win && record.target instanceof win.Element ? describeElement(record.target, doc) : undefined;
-  const events = [];
-  if (record.type === 'childList') {
-    for (const node of Array.from(record.addedNodes)) {
-      events.push({
-        id: crypto.randomUUID(),
-        timestamp,
-        type: 'dom.added',
-        target: parent,
-        data: {
-          parent,
-          position: Math.max(0, Array.from(record.target.childNodes).indexOf(node)),
-          subtree: snapshotNode(node, doc),
-        },
-      });
-    }
-    for (const node of Array.from(record.removedNodes)) {
-      events.push({
-        id: crypto.randomUUID(),
-        timestamp,
-        type: 'dom.removed',
-        target: parent,
-        data: {
-          parent,
-          position: Math.max(0, record.previousSibling ? Array.from(record.target.childNodes).indexOf(record.previousSibling) + 1 : 0),
-          subtree: snapshotNode(node, doc),
-        },
-      });
-    }
-  } else if (win && record.type === 'attributes' && record.target instanceof win.Element) {
-    events.push({
-      id: crypto.randomUUID(),
-      timestamp,
-      type: 'dom.attributes',
-      target: describeElement(record.target, doc),
-      data: {
-        attribute: record.attributeName || '',
-        oldValue: record.oldValue,
-        newValue: record.target.getAttribute(record.attributeName || '') ?? null,
-      },
-    });
-  } else if (win && record.type === 'characterData' && record.target instanceof win.CharacterData) {
-    events.push({
-      id: crypto.randomUUID(),
-      timestamp,
-      type: 'dom.text',
-      target: record.target.parentElement ? describeElement(record.target.parentElement, doc) : undefined,
-      data: {
-        oldText: record.oldValue || '',
-        newText: record.target.data,
-      },
-    });
-  }
-  return events;
-}
-
-function captureSnapshot(doc) {
-  return {
-    url: redactUrl(doc.URL),
-    title: doc.title,
-    html: serializeHtml(doc),
-    document: snapshotNode(doc, doc),
-  };
-}
-
-function snapshotNode(node, doc, depth = 0) {
-  if (depth > 20) return null;
-  if (node.nodeType === Node.TEXT_NODE) {
-    const text = clean(node.textContent || '');
-    return text ? { kind: 'text', text } : null;
-  }
-  if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.DOCUMENT_NODE) return null;
-  const element = node.nodeType === Node.ELEMENT_NODE ? node : null;
-  const attributes = {};
-  if (element) {
-    for (const attr of Array.from(element.attributes)) {
-      if (attr.name === 'style') continue;
-      if (attr.name === 'value' && isRedactedField(element)) {
-        attributes[attr.name] = '[redacted]';
-        continue;
-      }
-      attributes[attr.name] = truncate(attr.value);
-    }
-  }
-  const children = Array.from(node.childNodes).slice(0, 500).map((child) => snapshotNode(child, doc, depth + 1)).filter(Boolean);
-  const selectors = element ? selectorsFor(element, doc) : [];
-  return {
-    kind: node.nodeType === Node.DOCUMENT_NODE ? 'document' : 'element',
-    tagName: element?.tagName.toLowerCase(),
-    text: element ? truncate(clean(element.textContent || '')) || undefined : undefined,
-    attributes: element ? attributes : undefined,
-    children,
-    selector: selectors[0],
-    path: element ? buildPath(element) : 'document',
-  };
-}
-
-function serializeHtml(doc) {
-  const clone = doc.documentElement.cloneNode(true);
-  for (const script of Array.from(clone.querySelectorAll('script, noscript'))) {
-    script.textContent = '[omitted]';
-  }
-  for (const field of Array.from(clone.querySelectorAll('input, textarea'))) {
-    const type = (field.getAttribute('type') || 'text').toLowerCase();
-    if (shouldRedactValue(type)) field.setAttribute('value', '[redacted]');
-  }
-  return `<!doctype html>\n${clone.outerHTML}`;
-}
-
-function describeElement(element, doc) {
-  const selectors = selectorsFor(element, doc);
-  return {
-    selector: selectors[0],
-    selectors,
-    role: roleFor(element),
-    name: nameFor(element),
-    tagName: element.tagName.toLowerCase(),
-    id: element.id || null,
-    classes: Array.from(element.classList),
-    path: buildPath(element),
-    text: truncate(clean(element.textContent || '')),
-    attributes: Object.fromEntries(Array.from(element.attributes).map((attribute) => [attribute.name, truncate(attribute.value)])),
-  };
-}
-
-function selectorsFor(element, doc) {
-  const candidates = [];
-  if (element.id) candidates.push(`#${cssEscape(element.id)}`);
-  const testId = element.getAttribute('data-testid') || element.getAttribute('data-test') || element.getAttribute('data-qa');
-  if (testId) candidates.push(`[data-testid="${attrEscape(testId)}"]`);
-  const role = roleFor(element);
-  const name = nameFor(element);
-  if (role && name) candidates.push(`getByRole("${role}", { name: ${JSON.stringify(name)} })`);
-  const className = Array.from(element.classList).filter(Boolean).slice(0, 2).join('.');
-  if (className) candidates.push(`${element.tagName.toLowerCase()}.${className}`);
-  candidates.push(buildPath(element));
-  return candidates;
-}
-
-function roleFor(element) {
-  const explicit = element.getAttribute('role');
-  if (explicit) return explicit;
-  const tag = element.tagName.toLowerCase();
-  if (tag === 'button') return 'button';
-  if (tag === 'a' && element.hasAttribute('href')) return 'link';
-  if (tag === 'textarea') return 'textbox';
-  if (tag === 'input') {
-    const type = (element.getAttribute('type') || 'text').toLowerCase();
-    if (type === 'checkbox') return 'checkbox';
-    if (type === 'radio') return 'radio';
-    if (type === 'submit' || type === 'button' || type === 'reset') return 'button';
-    return 'textbox';
-  }
-  if (tag === 'select') return 'combobox';
-  return null;
-}
-
-function nameFor(element) {
-  const ariaLabel = element.getAttribute('aria-label');
-  if (ariaLabel) return clean(ariaLabel);
-  const title = element.getAttribute('title');
-  if (title) return clean(title);
-  const text = clean(element.textContent || '');
-  return text || null;
-}
-
-function buildPath(element) {
-  const parts = [];
-  let current = element;
-  while (current) {
-    const tag = current.tagName.toLowerCase();
-    const siblings = Array.from(current.parentElement?.children || []).filter((candidate) => candidate.tagName === current.tagName);
-    const index = siblings.length > 1 ? siblings.indexOf(current) + 1 : 0;
-    parts.unshift(index > 0 ? `${tag}:nth-of-type(${index})` : tag);
-    current = current.parentElement;
-  }
-  return parts.join(' > ');
-}
-
-function isRedactedField(element) {
-  return (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') && shouldRedactValue((element.getAttribute('type') || 'text').toLowerCase());
-}
-
-function shouldRedactValue(type) {
-  if (type === 'password') return recordingOptions.redactPasswords !== false;
-  return recordingOptions.redactInputValues !== false && ['text', 'search', 'email', 'url', 'tel', 'number'].includes(type);
-}
-
-function truncate(value, max = 2000) {
-  const normalized = clean(value);
-  return normalized.length > max ? `${normalized.slice(0, max)}…` : normalized;
-}
-
-function clean(value) {
-  return value.replace(/\s+/g, ' ').trim();
-}
-
-function cssEscape(value) {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/'/g, "\\'");
-}
-
-function attrEscape(value) {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-}
-
-function redactUrl(value) {
-  try {
-    const parsed = new URL(value);
-    parsed.search = '';
-    parsed.hash = '';
-    return parsed.toString();
-  } catch {
-    return value;
-  }
-}
-
-function correlateRecording(recording) {
-  const transactions = [];
-  const windowMs = 750;
-  const userEvents = recording.events.filter((event) => event.type.startsWith('user.'));
-  for (const action of userEvents) {
-    transactions.push({ id: action.id, action, mutations: [], semanticChanges: [] });
-  }
-  for (const event of recording.events) {
-    if (!event.type.startsWith('dom.')) continue;
-    const actionIndex = findActionIndex(userEvents, event.timestamp, windowMs);
-    if (actionIndex < 0) continue;
-    transactions[actionIndex].mutations.push(event);
-  }
-  for (const transaction of transactions) {
-    transaction.semanticChanges = transaction.mutations.map((mutation) => ({
-      kind: mutation.type === 'dom.text' ? 'text' : mutation.type === 'dom.attributes' ? 'attribute' : mutation.type === 'dom.added' ? 'node-added' : 'node-removed',
-      summary: describeMutation(mutation),
-      target: mutation.target,
-      selector: mutation.target?.selector,
-      before: mutation.data?.oldText ?? mutation.data?.oldValue ?? undefined,
-      after: mutation.data?.newText ?? mutation.data?.newValue ?? undefined,
-    }));
-  }
-  return transactions;
-}
-
-function findActionIndex(actions, timestamp, windowMs) {
-  const time = Date.parse(timestamp);
-  let best = -1;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (let index = 0; index < actions.length; index += 1) {
-    const actionTime = Date.parse(actions[index].timestamp);
-    const distance = time - actionTime;
-    if (distance < 0 || distance > windowMs) continue;
-    if (distance < bestDistance) {
-      bestDistance = distance;
-      best = index;
-    }
-  }
-  return best;
-}
-
-function describeMutation(mutation) {
-  if (mutation.type === 'dom.text') return `${mutation.target?.selector || 'element'} text changed`;
-  if (mutation.type === 'dom.attributes') return `${mutation.target?.selector || 'element'} attribute changed`;
-  if (mutation.type === 'dom.added') return `${mutation.target?.selector || 'element'} added`;
-  if (mutation.type === 'dom.removed') return `${mutation.target?.selector || 'element'} removed`;
-  return mutation.type;
-}
-
 
 function exportRecordingJson(recording) {
   return JSON.stringify(recording, null, 2);
@@ -684,29 +435,6 @@ function updateButtons() {
   els.copySelector.disabled = !state.selected?.target?.selector;
   els.copyAiDrop.disabled = !hasRecording;
   els.copyEvidence.disabled = !hasRecording;
-}
-
-function buildAiDropText(recording) {
-  const lines = [];
-  lines.push('PAGE');
-  lines.push(`URL: ${recording.url}`);
-  lines.push(`Title: ${recording.title}`);
-  lines.push('');
-  lines.push('INITIAL STATE');
-  lines.push(recording.initialSnapshot?.html || '—');
-  lines.push('');
-  lines.push('ACTIONS');
-  for (const [index, transaction] of (recording.transactions || []).entries()) {
-    lines.push(`Action ${index + 1}: ${transaction.action.type}`);
-    lines.push(`Target: ${transaction.action.target?.selector || transaction.action.target?.name || 'unknown'}`);
-    for (const change of transaction.semanticChanges || []) {
-      lines.push(`- ${change.summary}`);
-    }
-    lines.push('');
-  }
-  lines.push('FINAL STATE');
-  lines.push(recording.finalSnapshot?.html || '—');
-  return lines.join('\n');
 }
 
 function escapeHtml(value) {

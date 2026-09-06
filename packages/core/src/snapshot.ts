@@ -1,5 +1,5 @@
 import type { DomNodeSnapshot, RecordingConfig, RecordingSnapshot } from './model.js';
-import { shouldRedactFieldValue } from './redaction.js';
+import { shouldRedactElementValue, shouldRedactFieldValue } from './redaction.js';
 import { buildDomPath, generateSelectors, resolveSelector } from './selectors.js';
 
 export function captureRecordingSnapshot(
@@ -74,17 +74,35 @@ export function serializeNode(
 }
 
 export function serializeDocumentHtml(document: Document, config: RecordingConfig = {}, scopeElement?: Element | null): string {
-  const clone = (scopeElement ?? document.documentElement).cloneNode(true) as HTMLElement;
+  const root = scopeElement ?? document.documentElement;
+  // documentElement can briefly be null on a document that hasn't started parsing yet (e.g.
+  // an init script running at the very start of navigation, before <html> exists).
+  if (!root) return '<!doctype html>\n<html></html>';
+  // cloneNode(true) only copies HTML attributes, not the live `.value` IDL property that
+  // typing/scripting updates on inputs and textareas — read the live values from the
+  // originals (in the same traversal order as the clone) before they're discarded.
+  const originalFields = Array.from(root.querySelectorAll('input, textarea'));
+  const clone = root.cloneNode(true) as HTMLElement;
   for (const script of Array.from(clone.querySelectorAll('script, noscript'))) {
     script.textContent = '[omitted]';
   }
-  for (const input of Array.from(clone.querySelectorAll('input, textarea'))) {
-    const type = (input.getAttribute('type') || 'text').toLowerCase();
-    const tag = input.tagName.toLowerCase();
-    if (shouldRedactFieldValue(tag, type, config)) {
-      input.setAttribute('value', '[redacted]');
+  const clonedFields = Array.from(clone.querySelectorAll('input, textarea'));
+  clonedFields.forEach((field, index) => {
+    // originalFields[index] is guaranteed to be an <input> or <textarea> by the selector
+    // above; read `.value` directly rather than via `instanceof HTMLInputElement`, which can
+    // fail when the element comes from a different realm (e.g. a JSDOM window) than the one
+    // this module's globals resolve in.
+    const original = originalFields[index] as HTMLInputElement | HTMLTextAreaElement | undefined;
+    const tag = field.tagName.toLowerCase();
+    const type = (field.getAttribute('type') || 'text').toLowerCase();
+    const liveValue = original?.value ?? '';
+    const value = shouldRedactFieldValue(tag, type, config) ? '[redacted]' : liveValue;
+    if (tag === 'textarea') {
+      field.textContent = value;
+    } else {
+      field.setAttribute('value', value);
     }
-  }
+  });
   return `<!doctype html>\n${clone.outerHTML}`;
 }
 
@@ -92,7 +110,7 @@ function serializeAttributes(element: Element, config: RecordingConfig): Record<
   const attributes: Record<string, string> = {};
   for (const attribute of Array.from(element.attributes)) {
     if (attribute.name === 'style') continue;
-    if (attribute.name === 'value' && shouldRedactValue(element, config)) {
+    if (attribute.name === 'value' && shouldRedactElementValue(element, config)) {
       attributes[attribute.name] = '[redacted]';
       continue;
     }
@@ -103,16 +121,10 @@ function serializeAttributes(element: Element, config: RecordingConfig): Record<
     const valueSource = tag === 'input'
       ? (element as HTMLInputElement).value
       : (element as HTMLTextAreaElement).value;
-    const value = shouldRedactValue(element, config) ? '[redacted]' : truncate(valueSource, config.maxTextLength ?? 2_000);
+    const value = shouldRedactElementValue(element, config) ? '[redacted]' : truncate(valueSource, config.maxTextLength ?? 2_000);
     attributes.value = value;
   }
   return attributes;
-}
-
-function shouldRedactValue(element: Element, config: RecordingConfig): boolean {
-  const tag = element.tagName.toLowerCase();
-  const type = element.getAttribute('type')?.toLowerCase() || 'text';
-  return shouldRedactFieldValue(tag, type, config);
 }
 
 function truncate(value: string, max: number): string {

@@ -3,7 +3,7 @@ import type { Recording, RecordingConfig, RecordingEvent, RecordingSnapshot } fr
 import { correlateRecording } from '../../core/src/correlation.js';
 import { createId, isoNow, RECORDING_SCHEMA_VERSION } from '../../core/src/model.js';
 import { serializeRecording } from '../../core/src/serialization.js';
-import { browserRecorderBootstrap } from './browser-init.js';
+import { buildBrowserRecorderInitScript } from './browser-init.js';
 import { exportRecordingArtifacts } from '../../exporter/src/index.js';
 
 type RecorderState = {
@@ -49,16 +49,17 @@ export class DomRecorder {
       }
     });
 
-    await page.addInitScript(browserRecorderBootstrap, { channel, config });
+    const initScript = buildBrowserRecorderInitScript({ channel, config });
+    await page.addInitScript({ content: initScript });
     if (page.url() !== 'about:blank') {
-      await page.evaluate(browserRecorderBootstrap, { channel, config });
-      await hydrateSnapshot(page, state, config);
+      await page.evaluate(initScript);
+      await hydrateSnapshot(page, state);
     }
 
     const recorder = new DomRecorder(page, config, state);
     recorder.navigationListener = async (frame) => {
       if (frame !== page.mainFrame()) return;
-      await hydrateSnapshot(page, state, config);
+      await hydrateSnapshot(page, state);
     };
     page.on('framenavigated', recorder.navigationListener);
     return recorder;
@@ -95,7 +96,7 @@ export class DomRecorder {
   }
 
   private async snapshot(): Promise<Omit<Recording, 'endedAt'>> {
-    await hydrateSnapshot(this.page, this.state, this.config);
+    await hydrateSnapshot(this.page, this.state);
     const initialSnapshot = this.state.initialSnapshot ?? (await captureSnapshotFallback(this.page, this.config));
     const finalSnapshot = this.state.finalSnapshot ?? initialSnapshot;
     const recording = {
@@ -121,7 +122,6 @@ export class DomRecorder {
 async function hydrateSnapshot(
   page: Page,
   state: RecorderState,
-  config: RecordingConfig,
 ): Promise<void> {
   const snapshot = await page.evaluate(() => {
     const api = window as unknown as SnapshotApi;

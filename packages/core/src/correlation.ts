@@ -1,4 +1,4 @@
-import type { ActionTransaction, Recording, RecordingEvent, RecordingConfig } from './model.js';
+import type { ActionTransaction, Recording, RecordingConfig } from './model.js';
 import { buildSemanticDiff } from './semantic-diff.js';
 import { findActionIndex } from './correlation-helpers.js';
 

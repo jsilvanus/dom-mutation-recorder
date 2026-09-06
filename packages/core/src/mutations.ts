@@ -1,6 +1,7 @@
 import type { DomEventType, RecordingConfig, RecordingEvent, RecordingTarget } from './model.js';
 import { describeElement, isWithinScope, resolveSelector } from './selectors.js';
 import { serializeNode } from './snapshot.js';
+import { shouldRedactElementValue } from './redaction.js';
 
 export type MutationEventData =
   | {
@@ -38,7 +39,7 @@ export function describeMutationRecord(record: MutationRecord, config: Recording
   const events: RecordingEvent[] = [];
 
   if (record.type === 'childList') {
-    const parent = isElementLike(record.target) ? describeElement(record.target) : undefined;
+    const parent = isElementLike(record.target) ? describeElement(record.target, config) : undefined;
     for (const addedNode of Array.from(record.addedNodes)) {
       const position = Array.from(record.target.childNodes).indexOf(addedNode as ChildNode);
       events.push({
@@ -71,15 +72,17 @@ export function describeMutationRecord(record: MutationRecord, config: Recording
   }
 
   if (record.type === 'attributes' && isElementLike(record.target)) {
+    const attribute = record.attributeName || '';
+    const redact = attribute === 'value' && shouldRedactElementValue(record.target, config);
     events.push({
       id: crypto.randomUUID(),
       timestamp,
       type: 'dom.attributes',
-      target: describeElement(record.target),
+      target: describeElement(record.target, config),
       data: {
-        attribute: record.attributeName || '',
-        oldValue: record.oldValue,
-        newValue: record.target.getAttribute(record.attributeName || '') ?? null,
+        attribute,
+        oldValue: redact ? '[redacted]' : record.oldValue,
+        newValue: redact ? '[redacted]' : record.target.getAttribute(attribute) ?? null,
       },
     });
   }
@@ -89,7 +92,7 @@ export function describeMutationRecord(record: MutationRecord, config: Recording
       id: crypto.randomUUID(),
       timestamp,
       type: 'dom.text',
-      target: isElementLike(record.target.parentElement) ? describeElement(record.target.parentElement) : undefined,
+      target: isElementLike(record.target.parentElement) ? describeElement(record.target.parentElement, config) : undefined,
       data: {
         oldText: record.oldValue || '',
         newText: record.target.data,
@@ -128,6 +131,10 @@ function isElementLike(value: unknown): value is Element {
   return Boolean(value && typeof value === 'object' && 'nodeType' in value && (value as Element).nodeType === 1);
 }
 
+const CHARACTER_DATA_NODE_TYPES = new Set([3, 4, 7, 8]); // Text, CDATASection, ProcessingInstruction, Comment
+
 function isCharacterDataLike(value: unknown): value is CharacterData {
-  return Boolean(value && typeof value === 'object' && 'nodeType' in value && (value as CharacterData).nodeType === 3);
+  return Boolean(
+    value && typeof value === 'object' && 'nodeType' in value && CHARACTER_DATA_NODE_TYPES.has((value as CharacterData).nodeType),
+  );
 }

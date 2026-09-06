@@ -1,4 +1,5 @@
-import type { DomNodeSnapshot, RecordingTarget, SelectorCandidate } from './model.js';
+import type { DomNodeSnapshot, RecordingConfig, RecordingTarget, SelectorCandidate } from './model.js';
+import { shouldRedactElementValue } from './redaction.js';
 
 export function cssEscape(value: string): string {
   const css = (globalThis as { CSS?: { escape?: (input: string) => string } }).CSS?.escape;
@@ -153,10 +154,11 @@ function dedupeCandidates(candidates: SelectorCandidate[]): SelectorCandidate[] 
     .sort((a, b) => b.confidence - a.confidence);
 }
 
-export function describeElement(element: Element): RecordingTarget {
+export function describeElement(element: Element, config: RecordingConfig = {}): RecordingTarget {
   const selectors = generateSelectors(element);
   const role = getRole(element);
   const name = getAccessibleName(element);
+  const redactValue = shouldRedactElementValue(element, config);
   return {
     selector: selectors[0]?.selector,
     selectors,
@@ -168,7 +170,10 @@ export function describeElement(element: Element): RecordingTarget {
     path: buildDomPath(element),
     text: element.textContent?.replace(/\s+/g, ' ').trim() || null,
     attributes: Object.fromEntries(
-      Array.from(element.attributes).map((attribute) => [attribute.name, attribute.value]),
+      Array.from(element.attributes).map((attribute) => [
+        attribute.name,
+        attribute.name === 'value' && redactValue ? '[redacted]' : attribute.value,
+      ]),
     ),
   };
 }

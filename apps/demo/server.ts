@@ -1,11 +1,14 @@
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { extname, join } from 'node:path';
+import { extname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 const publicDir = join(root, 'public');
 const devtoolsDir = join(root, '../devtools');
+// apps/devtools/app.js imports packages/core's compiled output directly as an ES module
+// (see apps/devtools/app.js and CONTRIBUTING.md) — needs `npm run build` to have been run.
+const distDir = join(root, '../../dist');
 
 const server = createServer(async (req, res) => {
   const pathname = decodeURIComponent(req.url || '/').replace(/^\/+/, '');
@@ -49,5 +52,13 @@ function resolveRoute(pathname: string): string | null {
   if (pathname === 'app.js') return join(publicDir, 'app.js');
   if (pathname === 'devtools' || pathname === 'devtools/' || pathname === 'devtools/index.html') return join(devtoolsDir, 'index.html');
   if (pathname === 'devtools/app.js') return join(devtoolsDir, 'app.js');
+  if (pathname.startsWith('dist/')) return resolveWithin(distDir, pathname.slice('dist/'.length));
   return null;
+}
+
+function resolveWithin(baseDir: string, relativePath: string): string | null {
+  const resolved = join(baseDir, relativePath);
+  const relativeToBase = relative(baseDir, resolved);
+  if (relativeToBase.startsWith('..') || relativeToBase === '') return null;
+  return resolved;
 }
