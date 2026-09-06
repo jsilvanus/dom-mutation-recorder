@@ -432,7 +432,7 @@ function describeElement(element, doc) {
   };
 }
 
-function selectorsFor(element, doc) {
+function selectorsFor(element, _doc) {
   const candidates = [];
   if (element.id) candidates.push(`#${cssEscape(element.id)}`);
   const testId = element.getAttribute('data-testid') || element.getAttribute('data-test') || element.getAttribute('data-qa');

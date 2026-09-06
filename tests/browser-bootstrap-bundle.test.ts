@@ -17,7 +17,6 @@ const bundleSource = readFileSync(bundlePath, 'utf8');
 type Emitted = Record<string, unknown>;
 
 declare global {
-  // eslint-disable-next-line no-var
   var DomRecorderBootstrap: { browserRecorderBootstrap: (options: unknown) => void } | undefined;
 }
 
