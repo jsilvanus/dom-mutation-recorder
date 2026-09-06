@@ -88,7 +88,7 @@ export class DomRecorder {
   }
 
   toJSON(): Promise<string> {
-    return this.snapshot().then((recording) => serializeRecording(recording));
+    return this.stop().then((recording) => serializeRecording(recording));
   }
 
   private async snapshot(): Promise<Recording> {

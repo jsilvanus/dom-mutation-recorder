@@ -7,6 +7,13 @@ const state = {
   iframeReady: false,
 };
 
+const recordingOptions = {
+  redactInputValues: true,
+  redactPasswords: true,
+};
+
+let lastValues = new WeakMap();
+
 const els = {
   targetUrl: document.querySelector('#target-url'),
   loadTarget: document.querySelector('#load-target'),
@@ -26,7 +33,7 @@ const els = {
 };
 
 els.targetUrl.value = state.targetUrl;
-els.preview.src = state.targetUrl;
+void loadPreviewTarget(state.targetUrl);
 
 els.targetUrl.addEventListener('change', () => {
   state.targetUrl = els.targetUrl.value.trim() || '/index.html';
@@ -34,7 +41,7 @@ els.targetUrl.addEventListener('change', () => {
 
 els.loadTarget.addEventListener('click', () => {
   state.targetUrl = els.targetUrl.value.trim() || '/index.html';
-  els.preview.src = state.targetUrl;
+  void loadPreviewTarget(state.targetUrl);
   state.iframeReady = false;
   setStatus('Loading target…', 'idle');
 });
@@ -90,7 +97,27 @@ function canAccessPreview() {
   }
 }
 
+async function loadPreviewTarget(value) {
+  const target = normalizeTargetUrl(value);
+  state.targetUrl = target;
+  els.targetUrl.value = target;
+  els.preview.src = new URL(target, location.origin).href;
+}
+
+function normalizeTargetUrl(value) {
+  const fallback = '/index.html';
+  const trimmed = value.trim() || fallback;
+  try {
+    const parsed = new URL(trimmed, location.href);
+    if (parsed.origin !== location.origin) return fallback;
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return fallback;
+  }
+}
+
 function startRecording() {
+  lastValues = new WeakMap();
   const win = els.preview.contentWindow;
   const doc = win.document;
   state.session = {
@@ -128,9 +155,9 @@ function attachRecordingSession(session) {
   const { document: doc, window: win } = session;
   const userEventTypes = ['click', 'dblclick', 'input', 'change', 'keydown', 'keyup', 'focus', 'blur'];
   const handleUserEvent = (type) => (event) => {
-    const target = event.target instanceof Element ? event.target : null;
+    const target = event.target instanceof win.Element ? event.target : null;
     if (!target) return;
-    session.events.push(buildUserEvent(type, event, target, doc));
+    session.events.push(buildUserEvent(type, event, target, doc, win));
     renderEvents(currentEvents());
   };
 
@@ -142,7 +169,7 @@ function attachRecordingSession(session) {
 
   const observer = new MutationObserver((records) => {
     for (const record of records) {
-      session.events.push(...buildMutationEvents(record, doc));
+      session.events.push(...buildMutationEvents(record, doc, win));
     }
     renderEvents(currentEvents());
   });
@@ -196,36 +223,38 @@ function currentEvents() {
   return state.session ? state.session.events : currentRecording()?.events || [];
 }
 
-function buildUserEvent(type, event, target, doc) {
+function buildUserEvent(type, event, target, doc, win) {
   return {
     id: crypto.randomUUID(),
     timestamp: new Date().toISOString(),
     type,
     target: describeElement(target, doc),
-    data: buildUserEventData(event, target),
+    data: buildUserEventData(event, target, win),
   };
 }
 
-function buildUserEventData(event, target) {
+function buildUserEventData(event, target, win) {
   const data = {};
   if ('clientX' in event && typeof event.clientX === 'number') {
     data.coordinates = { x: event.clientX, y: event.clientY || 0 };
   }
-  if (event instanceof KeyboardEvent) {
+  if (win && event instanceof win.KeyboardEvent) {
     data.key = isRedactedField(target) && event.key.length === 1 ? '[redacted]' : event.key;
     data.code = event.code;
   }
-  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) {
-    data.before = target.dataset.beforeValue ?? target.value;
-    data.after = isRedactedField(target) ? '[redacted]' : target.value;
-    target.dataset.beforeValue = data.after;
+  if (win && (target instanceof win.HTMLInputElement || target instanceof win.HTMLTextAreaElement)) {
+    if (type === 'user.input' || type === 'user.change') {
+      data.before = lastValues.get(target) ?? target.value;
+      data.after = isRedactedField(target) ? '[redacted]' : target.value;
+      lastValues.set(target, data.after);
+    }
   }
   return data;
 }
 
-function buildMutationEvents(record, doc) {
+function buildMutationEvents(record, doc, win) {
   const timestamp = new Date().toISOString();
-  const parent = record.target instanceof Element ? describeElement(record.target, doc) : undefined;
+  const parent = win && record.target instanceof win.Element ? describeElement(record.target, doc) : undefined;
   const events = [];
   if (record.type === 'childList') {
     for (const node of Array.from(record.addedNodes)) {
@@ -254,7 +283,7 @@ function buildMutationEvents(record, doc) {
         },
       });
     }
-  } else if (record.type === 'attributes' && record.target instanceof Element) {
+  } else if (win && record.type === 'attributes' && record.target instanceof win.Element) {
     events.push({
       id: crypto.randomUUID(),
       timestamp,
@@ -266,7 +295,7 @@ function buildMutationEvents(record, doc) {
         newValue: record.target.getAttribute(record.attributeName || '') ?? null,
       },
     });
-  } else if (record.type === 'characterData' && record.target instanceof CharacterData) {
+  } else if (win && record.type === 'characterData' && record.target instanceof win.CharacterData) {
     events.push({
       id: crypto.randomUUID(),
       timestamp,
@@ -409,7 +438,8 @@ function isRedactedField(element) {
 }
 
 function shouldRedactValue(type) {
-  return ['password', 'text', 'search', 'email', 'url', 'tel', 'number'].includes(type);
+  if (type === 'password') return recordingOptions.redactPasswords !== false;
+  return recordingOptions.redactInputValues !== false && ['text', 'search', 'email', 'url', 'tel', 'number'].includes(type);
 }
 
 function truncate(value, max = 2000) {
@@ -441,18 +471,17 @@ function redactUrl(value) {
 }
 
 function correlateRecording(recording) {
-  const userEvents = recording.events.filter((event) => event.type.startsWith('user.'));
-  const domEvents = recording.events.filter((event) => event.type.startsWith('dom.'));
   const transactions = [];
-  let current = null;
+  const windowMs = 750;
+  const userEvents = recording.events.filter((event) => event.type.startsWith('user.'));
+  for (const action of userEvents) {
+    transactions.push({ id: action.id, action, mutations: [], semanticChanges: [] });
+  }
   for (const event of recording.events) {
-    if (event.type.startsWith('user.')) {
-      current = { id: event.id, action: event, mutations: [], semanticChanges: [] };
-      transactions.push(current);
-      continue;
-    }
-    if (!current || !event.type.startsWith('dom.')) continue;
-    current.mutations.push(event);
+    if (!event.type.startsWith('dom.')) continue;
+    const actionIndex = findActionIndex(userEvents, event.timestamp, windowMs);
+    if (actionIndex < 0) continue;
+    transactions[actionIndex].mutations.push(event);
   }
   for (const transaction of transactions) {
     transaction.semanticChanges = transaction.mutations.map((mutation) => ({
@@ -467,6 +496,22 @@ function correlateRecording(recording) {
   return transactions;
 }
 
+function findActionIndex(actions, timestamp, windowMs) {
+  const time = Date.parse(timestamp);
+  let best = -1;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < actions.length; index += 1) {
+    const actionTime = Date.parse(actions[index].timestamp);
+    const distance = time - actionTime;
+    if (distance < 0 || distance > windowMs) continue;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = index;
+    }
+  }
+  return best;
+}
+
 function describeMutation(mutation) {
   if (mutation.type === 'dom.text') return `${mutation.target?.selector || 'element'} text changed`;
   if (mutation.type === 'dom.attributes') return `${mutation.target?.selector || 'element'} attribute changed`;
@@ -474,6 +519,7 @@ function describeMutation(mutation) {
   if (mutation.type === 'dom.removed') return `${mutation.target?.selector || 'element'} removed`;
   return mutation.type;
 }
+
 
 function exportRecordingJson(recording) {
   return JSON.stringify(recording, null, 2);
@@ -495,7 +541,9 @@ function download(filename, content) {
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
+  document.body.append(link);
   link.click();
+  link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 

@@ -154,6 +154,7 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
   };
 
   const lastValues = new WeakMap<Element, string>();
+  const documentListeners: Array<[string, EventListener]> = [];
   const emitUser = (type: string, event: Event) => {
     const target = event.target;
     if (!(target instanceof Element)) return;
@@ -253,11 +254,18 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
   });
 
   for (const type of ['click', 'dblclick', 'input', 'change', 'keydown', 'keyup', 'focus', 'blur'] as const) {
-    document.addEventListener(type, (event) => emitUser(`user.${type}`, event), true);
+    const handler = (event: Event) => emitUser(`user.${type}`, event);
+    document.addEventListener(type, handler, true);
+    documentListeners.push([type, handler]);
   }
 
   emit({ snapshot: snapshot() });
   (window as unknown as Record<string, unknown>).__domRecorderSnapshot = snapshot;
-  (window as unknown as Record<string, unknown>).__domRecorderStop = () => observer.disconnect();
+  (window as unknown as Record<string, unknown>).__domRecorderStop = () => {
+    observer.disconnect();
+    for (const [type, handler] of documentListeners) {
+      document.removeEventListener(type, handler, true);
+    }
+  };
 
 }
