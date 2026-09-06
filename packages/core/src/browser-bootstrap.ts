@@ -1,5 +1,4 @@
 import type { RecordingConfig } from './model.js';
-import { shouldRedactFieldValue } from './redaction.js';
 
 export type BrowserRecorderInit = {
   channel: string;
@@ -8,6 +7,15 @@ export type BrowserRecorderInit = {
 
 export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
   const config = options.config || {};
+  const shouldRedactFieldValue = (tagName: string, type: string): boolean => {
+    if (tagName === 'textarea') return config.redactInputValues !== false;
+    if (tagName !== 'input') return false;
+    if (type === 'password') {
+      return config.redactPasswords !== false || config.redactInputValues !== false;
+    }
+    const textLikeInputTypes = new Set(['text', 'search', 'email', 'url', 'tel', 'number']);
+    return config.redactInputValues !== false && textLikeInputTypes.has(type);
+  };
   const emit = (payload: unknown) => {
     const fn = (window as unknown as Record<string, (value: unknown) => void>)[options.channel];
     if (typeof fn === 'function') fn(payload);
@@ -86,7 +94,7 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
   const shouldRedactValue = (element: Element) => {
     const tag = element.tagName.toLowerCase();
     const type = element.getAttribute('type')?.toLowerCase() || 'text';
-    return shouldRedactFieldValue(tag, type, config);
+    return shouldRedactFieldValue(tag, type);
   };
   const snapshotNode = (node: Node, depth = 0): unknown => {
     if (depth > 20) return null;
@@ -130,7 +138,7 @@ export function browserRecorderBootstrap(options: BrowserRecorderInit): void {
     for (const input of Array.from(clone.querySelectorAll('input, textarea'))) {
       const type = (input.getAttribute('type') || 'text').toLowerCase();
       const tag = input.tagName.toLowerCase();
-      if (shouldRedactFieldValue(tag, type, config)) {
+      if (shouldRedactFieldValue(tag, type)) {
         input.setAttribute('value', '[redacted]');
       }
     }

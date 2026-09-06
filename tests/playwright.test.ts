@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, join, resolve } from 'node:path';
@@ -42,20 +43,23 @@ afterAll(async () => {
 describe('playwright recorder', () => {
   it('records user actions and semantic mutations', async () => {
     const browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
-    const recorder = await DomRecorder.attach(page, { redactPasswords: true, redactInputValues: true });
+    try {
+      const page = await browser.newPage();
+      const recorder = await DomRecorder.attach(page, { redactPasswords: true, redactInputValues: true });
 
-    await page.goto(baseUrl);
-    await page.getByRole('button', { name: 'Add item' }).click();
-    await page.waitForSelector('.cart-item');
+      await page.goto(baseUrl);
+      await page.getByRole('button', { name: 'Add item' }).click();
+      await page.waitForSelector('.cart-item');
 
-    const recording = await recorder.stop();
-    await browser.close();
+      const recording = await recorder.stop();
 
-    expect(recording.initialSnapshot.html).toContain('DOM Recorder Demo');
-    expect(recording.events.some((event) => event.type === 'user.click')).toBe(true);
-    expect(recording.events.some((event) => event.type === 'dom.added')).toBe(true);
-    expect(recording.transactions?.some((transaction) => transaction.semanticChanges.length > 0)).toBe(true);
+      expect(recording.initialSnapshot.html).toContain('DOM Recorder Demo');
+      expect(recording.events.some((event) => event.type === 'user.click')).toBe(true);
+      expect(recording.events.some((event) => event.type === 'dom.added')).toBe(true);
+      expect(recording.transactions?.some((transaction) => transaction.semanticChanges.length > 0)).toBe(true);
+    } finally {
+      await browser.close();
+    }
   });
 });
 

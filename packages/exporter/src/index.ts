@@ -9,6 +9,7 @@ export type ExportMode = 'concise' | 'developer';
 export type ExportOptions = {
   mode?: ExportMode;
   storeOldResults?: boolean;
+  correlationWindowMs?: number;
 };
 
 const ARTIFACT_FILES = ['recording.json', 'evidence.json', 'summary.md', 'initial.html', 'final.html'];
@@ -23,7 +24,9 @@ export async function exportRecordingArtifacts(
   }
   await mkdir(directory, { recursive: true });
   const mode = options.mode ?? 'concise';
-  const transactions = recording.transactions?.length ? recording.transactions : correlateRecording(recording);
+  const transactions = recording.transactions?.length
+    ? recording.transactions
+    : correlateRecording(recording, { correlationWindowMs: options.correlationWindowMs });
   const finalHtml = recording.finalSnapshot?.html || recording.initialSnapshot.html;
   const evidence = { recording: recording.id, mode, transactions };
   await Promise.all([

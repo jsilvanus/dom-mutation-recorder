@@ -76,15 +76,18 @@ export class DomRecorder {
     if (this.navigationListener) {
       this.page.off('framenavigated', this.navigationListener);
     }
-    const recording = await this.snapshot();
-    recording.endedAt = isoNow();
+    const recording = { ...(await this.snapshot()), endedAt: isoNow() };
     this.state.finalRecording = recording;
     return recording;
   }
 
   async export(directory: string, mode: 'concise' | 'developer' = 'concise'): Promise<void> {
     const recording = await this.stop();
-    await exportRecordingArtifacts(recording, directory, { mode, storeOldResults: this.config.storeOldResults });
+    await exportRecordingArtifacts(recording, directory, {
+      mode,
+      storeOldResults: this.config.storeOldResults,
+      correlationWindowMs: this.config.correlationWindowMs,
+    });
   }
 
   serialize(): Promise<string> {
