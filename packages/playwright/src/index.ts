@@ -84,7 +84,7 @@ export class DomRecorder {
 
   async export(directory: string, mode: 'concise' | 'developer' = 'concise'): Promise<void> {
     const recording = await this.stop();
-    await exportRecordingArtifacts(recording, directory, { mode });
+    await exportRecordingArtifacts(recording, directory, { mode, storeOldResults: this.config.storeOldResults });
   }
 
   toJSON(): Promise<string> {

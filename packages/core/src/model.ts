@@ -38,6 +38,7 @@ export type SnapshotConfig = {
 
 export type RecordingConfig = SnapshotConfig & {
   correlationWindowMs?: number;
+  storeOldResults?: boolean;
 };
 
 export type DomNodeSnapshot = {

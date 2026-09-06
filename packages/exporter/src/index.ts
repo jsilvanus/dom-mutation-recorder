@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { ActionTransaction, Recording, SemanticChange } from '../../core/src/model.js';
 import { correlateRecording } from '../../core/src/correlation.js';
@@ -8,13 +8,19 @@ export type ExportMode = 'concise' | 'developer';
 
 export type ExportOptions = {
   mode?: ExportMode;
+  storeOldResults?: boolean;
 };
+
+const ARTIFACT_FILES = ['recording.json', 'evidence.json', 'summary.md', 'initial.html', 'final.html'];
 
 export async function exportRecordingArtifacts(
   recording: Recording,
   directory: string,
   options: ExportOptions = {},
 ): Promise<void> {
+  if (options.storeOldResults !== true) {
+    await clearRecordingArtifacts(directory);
+  }
   await mkdir(directory, { recursive: true });
   const mode = options.mode ?? 'concise';
   const transactions = recording.transactions?.length ? recording.transactions : correlateRecording(recording);
@@ -27,6 +33,10 @@ export async function exportRecordingArtifacts(
     writeFile(join(directory, 'initial.html'), recording.initialSnapshot.html, 'utf8'),
     writeFile(join(directory, 'final.html'), finalHtml, 'utf8'),
   ]);
+}
+
+export async function clearRecordingArtifacts(directory: string): Promise<void> {
+  await Promise.all(ARTIFACT_FILES.map((name) => rm(join(directory, name), { force: true })));
 }
 
 export function renderSummary(recording: Recording, transactions: ActionTransaction[], mode: ExportMode): string {

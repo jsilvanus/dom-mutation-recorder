@@ -81,6 +81,28 @@ The export folder contains:
 
 For failed tests, the AI-ready files are usually `summary.md` and `evidence.json`.
 
+If you want old export artifacts cleared at the start of a run, keep the default
+`storeOldResults: false`. Set `storeOldResults: true` only if you want to retain
+older export artifacts in the directory.
+
+Example `afterEach` export:
+
+```ts
+let recorder;
+
+test.beforeEach(async ({ page }) => {
+  recorder = await DomRecorder.attach(page, { storeOldResults: false });
+});
+
+test.afterEach(async (_, testInfo) => {
+  const resultDir = testInfo.outputPath('dom-recorder');
+
+  if (testInfo.status !== testInfo.expectedStatus) {
+    await recorder.export(resultDir, 'developer');
+  }
+});
+```
+
 ## CLI
 
 ```bash
