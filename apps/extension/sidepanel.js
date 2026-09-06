@@ -7,6 +7,7 @@ const els = {
   pick: document.querySelector('#pick'),
   page: document.querySelector('#page'),
   stop: document.querySelector('#stop'),
+  clear: document.querySelector('#clear'),
   copyAi: document.querySelector('#copy-ai'),
   copyJson: document.querySelector('#copy-json'),
   tabInfo: document.querySelector('#tab-info'),
@@ -40,6 +41,7 @@ els.page.addEventListener('click', () => {
   render();
 });
 els.stop.addEventListener('click', () => void stopRecording());
+els.clear.addEventListener('click', () => void clearRecording());
 els.copyAi.addEventListener('click', async () => {
   const recording = currentState?.recording;
   if (recording) await navigator.clipboard.writeText(buildAiDropText(recording));
@@ -86,6 +88,14 @@ async function stopRecording() {
   render();
 }
 
+async function clearRecording() {
+  currentState = await sendMessage({ type: 'domrecorder:clear' });
+  selectedScopeSelector = null;
+  selectedScopeLabel = null;
+  picking = false;
+  render();
+}
+
 async function startPicking() {
   activeTab = await getActiveTab();
   if (!activeTab?.id) return;
@@ -108,6 +118,7 @@ function render() {
   els.pick.disabled = live || picking || !activeTab?.id;
   els.page.disabled = live || !activeTab?.id;
   els.stop.disabled = !live;
+  els.clear.disabled = !recording;
   els.copyAi.disabled = !recording;
   els.copyJson.disabled = !recording;
 
