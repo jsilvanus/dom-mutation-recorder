@@ -64,6 +64,23 @@ const recording = await recorder.stop();
 await recorder.export('./test-results/add-item', 'concise');
 ```
 
+Typical test workflow:
+
+1. Attach the recorder before `page.goto()`.
+2. Run the test as usual.
+3. On success or failure, call `stop()` and `export()`.
+4. Read the files from `test-results/<test-name>/`.
+
+The export folder contains:
+
+- `recording.json`
+- `evidence.json`
+- `summary.md`
+- `initial.html`
+- `final.html`
+
+For failed tests, the AI-ready files are usually `summary.md` and `evidence.json`.
+
 ## CLI
 
 ```bash
@@ -102,6 +119,7 @@ Load `apps/extension` as an unpacked extension in Chrome. Then:
 4. Perform the interaction.
 5. Click **Stop**.
 6. Click **Copy AI drop** or **Copy JSON**.
+7. If you want files instead of clipboard text, save the recording from the side panel export actions and use the same `recording.json`, `evidence.json`, `summary.md`, `initial.html`, and `final.html` artifact set.
 
 The extension attaches to the active tab and reinjects the recorder after same-tab navigations, so search-result navigations are captured too.
 
